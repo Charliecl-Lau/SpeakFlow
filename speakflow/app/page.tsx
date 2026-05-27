@@ -65,6 +65,12 @@ export default function Home() {
   const textareaRef      = useRef<HTMLTextAreaElement>(null);
   const sessionTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef     = useRef<number>(0);
+  // messagesRef mirrors messages state — used by handleTurn to avoid stale closures
+  const messagesRef      = useRef<Message[]>([]);
+  const audioRef         = useRef<HTMLAudioElement | null>(null);
+
+  // Keep messagesRef in sync with state
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
     if (chatMsgsRef.current) {
@@ -98,6 +104,64 @@ export default function Home() {
     }, 1000);
   };
 
+  // ── Voice loop ───────────────────────────────────────────────
+  const handleTurn = useCallback(async () => {
+    setIsThinking(true);
+    setCurrentQuestion('');
+
+    const currentMsgs = messagesRef.current;
+
+    // 1. Fetch question from Gemma
+    let question: string;
+    try {
+      question = await fetchInterviewerReply({
+        interviewType,
+        questionType,
+        difficulty,
+        messages: currentMsgs,
+      });
+    } catch {
+      setIsThinking(false);
+      addMessage('interviewer', "Sorry, I couldn't generate a question. Try again.");
+      return;
+    }
+
+    setIsThinking(false);
+    setCurrentQuestion(question);
+
+    const qNum = currentMsgs.filter(m => m.role === 'interviewer').length + 1;
+    setQuestionNumber(qNum);
+    addMessage('interviewer', `**Question ${qNum}:** ${question}`);
+
+    // 2. Speak via ElevenLabs → fallback to speechSynthesis
+    setIsSpeaking(true);
+    let blobUrl: string | null = null;
+    try {
+      blobUrl = await fetchTts(question);
+      await new Promise<void>((resolve) => {
+        const audio = new Audio(blobUrl!);
+        audioRef.current = audio;
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+        audio.play().catch(() => resolve());
+      });
+    } catch {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        await new Promise<void>((resolve) => {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(question);
+          u.rate  = 0.88;
+          u.onend = () => resolve();
+          window.speechSynthesis.speak(u);
+        });
+      }
+    } finally {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+      audioRef.current = null;
+    }
+    setIsSpeaking(false);
+  }, [interviewType, questionType, difficulty, addMessage]);
+
   // ── Session lifecycle ────────────────────────────────────────
   const beginSession = useCallback(() => {
     setSessionActive(true);
@@ -124,18 +188,16 @@ export default function Home() {
       `I'll ask you one question at a time. Listen, then click the mic to record your answer.`
     );
 
-    // Mock question — Plan 4 replaces this with POST /api/interviewer
-    setIsThinking(true);
-    setTimeout(() => {
-      setIsThinking(false);
-      const mockQ = 'Tell me about a time you had to work under significant pressure. How did you handle it?';
-      setCurrentQuestion(mockQ);
-      addMessage('interviewer', `**Question 1:** ${mockQ}`);
-    }, 1200);
+    handleTurn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewType, questionType, difficulty, addMessage]);
+  }, [interviewType, questionType, difficulty, addMessage, handleTurn]);
 
   const endSession = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     setSessionActive(false);
     setIsListening(false);
     setIsSpeaking(false);
