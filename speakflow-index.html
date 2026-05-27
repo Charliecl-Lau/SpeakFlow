@@ -1,0 +1,907 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SpeakFlow — Interview Practice</title>
+  <style>
+    /* ── ElevenLabs-inspired token system ─────────────────────── */
+    :root {
+      --bg:          #000000;
+      --surface:     #0d0d0d;
+      --surface-2:   #181818;
+      --surface-3:   #222222;
+      --fg:          #ffffff;
+      --fg-2:        rgba(255,255,255,0.75);
+      --muted:       rgba(255,255,255,0.38);
+      --border:      rgba(255,255,255,0.07);
+      --border-2:    rgba(255,255,255,0.12);
+      --accent:      #f97316;
+      --accent-dim:  rgba(249,115,22,0.12);
+      --accent-glow: rgba(249,115,22,0.28);
+      --success:     #22c55e;
+      --danger:      #ef4444;
+      --sidebar-w:   268px;
+      --chat-w:      360px;
+      --font: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Text', system-ui, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: var(--sidebar-w) 1fr var(--chat-w);
+      height: 100vh;
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .logo {
+      padding: 20px 18px 18px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo-mark {
+      width: 30px; height: 30px;
+      background: var(--accent);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .logo-wordmark {
+      font-size: 14.5px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--fg);
+    }
+    .logo-wordmark em { color: var(--accent); font-style: normal; }
+
+    .sidebar-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 12px 12px;
+      scrollbar-width: none;
+    }
+    .sidebar-scroll::-webkit-scrollbar { display: none; }
+
+    .sidebar-section { margin-bottom: 24px; }
+
+    .sidebar-label {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0 8px;
+      margin-bottom: 6px;
+    }
+
+    .type-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .type-btn {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 10px;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--fg-2);
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+      width: 100%;
+      text-align: left;
+      font-family: var(--font);
+    }
+    .type-btn:hover { background: var(--surface-2); color: var(--fg); }
+    .type-btn.active { background: var(--accent-dim); color: var(--accent); }
+
+    .type-icon {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      background: var(--surface-3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .type-btn.active .type-icon { background: rgba(249,115,22,0.18); }
+
+    .type-dot {
+      margin-left: auto;
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0;
+      transition: opacity 0.12s;
+      flex-shrink: 0;
+    }
+    .type-btn.active .type-dot { opacity: 1; }
+
+    .sidebar-footer {
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .diff-label {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0 4px;
+      margin-bottom: 8px;
+    }
+
+    .diff-pills { display: flex; gap: 6px; }
+
+    .pill {
+      flex: 1;
+      padding: 6px 0;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 500;
+      border: 1px solid var(--border-2);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.12s;
+      font-family: var(--font);
+    }
+    .pill:hover { color: var(--fg-2); border-color: rgba(255,255,255,0.2); }
+    .pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .main {
+      background: var(--bg);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .main::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle, rgba(249,115,22,0.08) 1px, transparent 1px);
+      background-size: 36px 36px;
+      pointer-events: none;
+      mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black, transparent);
+    }
+
+    .idle-wrap {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 14px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--fg-2);
+    }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .status-badge.ready .status-dot { background: var(--success); }
+    .status-badge.live  .status-dot { background: var(--danger); animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .session-card {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 14px;
+      padding: 28px 36px 28px;
+      min-width: 360px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 5px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+
+    .session-title { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 5px; }
+
+    .session-desc {
+      font-size: 12.5px;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 280px;
+      margin-bottom: 24px;
+    }
+
+    .start-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 12px 32px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+      font-family: var(--font);
+      letter-spacing: 0.01em;
+    }
+    .start-btn:hover { background: #ea6a10; transform: translateY(-1px); box-shadow: 0 8px 24px var(--accent-glow); }
+    .start-btn:active { transform: translateY(0); }
+    .start-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .session-stats {
+      display: flex;
+      gap: 28px;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      width: 100%;
+      justify-content: center;
+    }
+    .stat { text-align: center; }
+    .stat-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat-lbl { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+    .countdown-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    .countdown-overlay.show { opacity: 1; pointer-events: all; }
+
+    .cd-label { font-size: 12px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500; }
+
+    .cd-ring-wrap {
+      position: relative;
+      width: 148px; height: 148px;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .cd-ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+    .cd-ring .track { fill: none; stroke: rgba(249,115,22,0.12); stroke-width: 3; }
+    .cd-ring .progress {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-dasharray: 427;
+      stroke-dashoffset: 0;
+      transition: stroke-dashoffset 0.95s linear;
+    }
+
+    .cd-num {
+      font-size: 72px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--accent);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 48px var(--accent-glow);
+      position: relative;
+      z-index: 1;
+    }
+
+    .cd-sub { font-size: 11.5px; color: var(--muted); }
+
+    .active-wrap { display: none; flex-direction: column; align-items: center; gap: 18px; }
+    .active-wrap.show { display: flex; }
+
+    .q-card {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 12px;
+      padding: 18px 22px;
+      max-width: 440px;
+      width: 100%;
+    }
+    .q-meta { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 7px; }
+    .q-text { font-size: 13.5px; color: var(--fg-2); line-height: 1.6; }
+
+    .waveform { display: flex; align-items: center; gap: 3px; height: 36px; }
+    .w-bar { width: 3px; background: var(--accent); border-radius: 2px; animation: wv 1.3s ease-in-out infinite; }
+    .w-bar:nth-child(1){animation-delay:0s;height:8px}
+    .w-bar:nth-child(2){animation-delay:.1s;height:16px}
+    .w-bar:nth-child(3){animation-delay:.2s;height:26px}
+    .w-bar:nth-child(4){animation-delay:.12s;height:20px}
+    .w-bar:nth-child(5){animation-delay:.05s;height:12px}
+    .w-bar:nth-child(6){animation-delay:.17s;height:22px}
+    .w-bar:nth-child(7){animation-delay:.07s;height:10px}
+    @keyframes wv { 0%,100%{transform:scaleY(0.3)} 50%{transform:scaleY(1)} }
+    .waveform.idle .w-bar { animation: none; transform: scaleY(0.25); }
+
+    .mic-btn {
+      width: 60px; height: 60px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: transform 0.18s, box-shadow 0.18s, background 0.18s;
+    }
+    .mic-btn:hover { transform: scale(1.06); }
+    .mic-btn.recording { background: var(--danger); animation: mic-ring 1.5s ease-in-out infinite; }
+    @keyframes mic-ring { 0%,100%{ box-shadow: 0 0 0 0 rgba(239,68,68,0.35); } 50%{ box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
+
+    .mic-hint { font-size: 11px; color: var(--muted); }
+
+    .end-btn {
+      padding: 7px 18px;
+      border-radius: 7px;
+      border: 1px solid var(--border-2);
+      background: transparent;
+      color: var(--muted);
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-family: var(--font);
+    }
+    .end-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+    .chat-panel {
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-head {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .chat-head-title { font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .ai-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+    .chat-head-sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+    .icon-btn {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--border-2);
+      background: transparent;
+      color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: all 0.12s;
+      font-size: 12px;
+    }
+    .icon-btn:hover { background: var(--surface-2); color: var(--fg-2); }
+
+    .chat-msgs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-2) transparent;
+    }
+    .chat-msgs::-webkit-scrollbar { width: 3px; }
+    .chat-msgs::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+
+    .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+    .chat-empty-icon { width: 38px; height: 38px; border-radius: 9px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .chat-empty-txt { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.5; max-width: 190px; }
+
+    .msg { display: flex; flex-direction: column; gap: 3px; }
+    .msg.user { align-items: flex-end; }
+    .msg.ai   { align-items: flex-start; }
+    .msg-from { font-size: 10px; color: var(--muted); padding: 0 2px; }
+    .msg-bubble { max-width: 90%; padding: 9px 13px; border-radius: 10px; font-size: 12px; line-height: 1.55; }
+    .msg.ai .msg-bubble { background: var(--surface-2); color: var(--fg-2); border-bottom-left-radius: 3px; }
+    .msg.user .msg-bubble { background: var(--accent-dim); color: var(--fg); border: 1px solid rgba(249,115,22,0.18); border-bottom-right-radius: 3px; }
+    .msg-bubble.feedback-card { background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.18); color: var(--fg-2); }
+    .fb-score { font-size: 11px; font-weight: 700; color: var(--success); margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
+
+    .typing-wrap { display: flex; align-items: center; gap: 4px; padding: 9px 13px; background: var(--surface-2); border-radius: 10px; border-bottom-left-radius: 3px; width: fit-content; }
+    .t-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: tdot 1.1s ease-in-out infinite; }
+    .t-dot:nth-child(2){animation-delay:.18s}
+    .t-dot:nth-child(3){animation-delay:.36s}
+    @keyframes tdot { 0%,100%{transform:translateY(0);opacity:.35} 50%{transform:translateY(-4px);opacity:1} }
+
+    .chat-input-row { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; gap: 7px; align-items: flex-end; flex-shrink: 0; }
+
+    .chat-input {
+      flex: 1;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: 9px 13px;
+      color: var(--fg);
+      font-size: 12px;
+      font-family: var(--font);
+      resize: none;
+      min-height: 38px;
+      max-height: 110px;
+      outline: none;
+      transition: border-color 0.12s;
+      line-height: 1.5;
+    }
+    .chat-input::placeholder { color: var(--muted); }
+    .chat-input:focus { border-color: rgba(249,115,22,0.38); }
+
+    .send-btn {
+      width: 34px; height: 34px;
+      border-radius: 7px;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: background 0.12s;
+      flex-shrink: 0;
+    }
+    .send-btn:hover { background: #ea6a10; }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="5" y="3" width="6" height="8" rx="3" fill="white"/>
+          <path d="M2 8c0 3.31 2.69 6 6 6s6-2.69 6-6" stroke="white" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+          <line x1="8" y1="14" x2="8" y2="15.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <span class="logo-wordmark">Speak<em>Flow</em></span>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-section">
+        <div class="sidebar-label">Interview Type</div>
+        <div class="type-list">
+          <button class="type-btn active" data-type="banking" onclick="selectType(this)">
+            <div class="type-icon">🏦</div>Banking &amp; Finance<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-type="consulting" onclick="selectType(this)">
+            <div class="type-icon">💼</div>Management Consulting<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-type="software" onclick="selectType(this)">
+            <div class="type-icon">⌨️</div>Software Engineering<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-type="product" onclick="selectType(this)">
+            <div class="type-icon">📦</div>Product Management<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-type="marketing" onclick="selectType(this)">
+            <div class="type-icon">📊</div>Marketing &amp; Growth<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-type="data" onclick="selectType(this)">
+            <div class="type-icon">📈</div>Data &amp; Analytics<div class="type-dot"></div>
+          </button>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-label">Question Type</div>
+        <div class="type-list">
+          <button class="type-btn active" data-qtype="behavioral" onclick="selectQtype(this)">
+            <div class="type-icon">🧠</div>Behavioural<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-qtype="technical" onclick="selectQtype(this)">
+            <div class="type-icon">🔧</div>Technical<div class="type-dot"></div>
+          </button>
+          <button class="type-btn" data-qtype="case" onclick="selectQtype(this)">
+            <div class="type-icon">📋</div>Case Study<div class="type-dot"></div>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div class="diff-label">Difficulty</div>
+      <div class="diff-pills">
+        <button class="pill active" onclick="selectDiff(this)">Easy</button>
+        <button class="pill" onclick="selectDiff(this)">Mid</button>
+        <button class="pill" onclick="selectDiff(this)">Hard</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="idle-wrap" id="idleWrap">
+      <div class="status-badge ready"><div class="status-dot"></div><span>Ready to practise</span></div>
+      <div class="session-card">
+        <div class="type-badge"><span id="badgeIcon">🏦</span><span id="badgeTxt">Banking &amp; Finance</span></div>
+        <div class="session-title">Start your practice session</div>
+        <div class="session-desc" id="sessionDesc">AI asks you realistic interview questions and gives instant verbal feedback on every answer.</div>
+        <button class="start-btn" id="startBtn" onclick="startCountdown()">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polygon points="3,1 13,7 3,13" fill="white"/></svg>
+          Start Interview
+        </button>
+        <div class="session-stats">
+          <div class="stat"><div class="stat-val" id="statQ">0</div><div class="stat-lbl">Questions done</div></div>
+          <div class="stat"><div class="stat-val" id="statAvg">—</div><div class="stat-lbl">Avg score</div></div>
+          <div class="stat"><div class="stat-val" id="statTime">0s</div><div class="stat-lbl">Session time</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="active-wrap" id="activeWrap">
+      <div class="status-badge live"><div class="status-dot"></div><span>Session live</span></div>
+      <div class="q-card">
+        <div class="q-meta">Question <span id="qNum">1</span> &nbsp;·&nbsp; <span id="qTypeLbl">Behavioural</span></div>
+        <div class="q-text" id="qText">Loading question…</div>
+      </div>
+      <div class="waveform idle" id="waveform">
+        <div class="w-bar"></div><div class="w-bar"></div><div class="w-bar"></div>
+        <div class="w-bar"></div><div class="w-bar"></div><div class="w-bar"></div><div class="w-bar"></div>
+      </div>
+      <button class="mic-btn" id="micBtn" onclick="toggleRecording()">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="6" y="1" width="8" height="11" rx="4" stroke="white" stroke-width="1.8"/>
+          <path d="M3 10c0 3.87 3.13 7 7 7s7-3.13 7-7" stroke="white" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+          <line x1="10" y1="17" x2="10" y2="19.5" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="mic-hint" id="micHint">Click mic to start recording your answer</div>
+      <button class="end-btn" onclick="endSession()">End session</button>
+    </div>
+
+    <div class="countdown-overlay" id="cdOverlay">
+      <div class="cd-label">Interview starts in</div>
+      <div class="cd-ring-wrap">
+        <svg class="cd-ring" viewBox="0 0 148 148">
+          <circle class="track"    cx="74" cy="74" r="68"/>
+          <circle class="progress" cx="74" cy="74" r="68" id="cdProgress"/>
+        </svg>
+        <div class="cd-num" id="cdNum">5</div>
+      </div>
+      <div class="cd-sub">Breathe. You've got this.</div>
+    </div>
+  </main>
+
+  <section class="chat-panel">
+    <div class="chat-head">
+      <div>
+        <div class="chat-head-title"><div class="ai-dot"></div>AI Interview Coach</div>
+        <div class="chat-head-sub">Powered by SpeakFlow AI</div>
+      </div>
+      <button class="icon-btn" onclick="clearChat()">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="chat-msgs" id="chatMsgs">
+      <div class="chat-empty" id="chatEmpty">
+        <div class="chat-empty-icon">💬</div>
+        <div class="chat-empty-txt">Start a session to practise with your AI interview coach</div>
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <textarea class="chat-input" id="chatInput" placeholder="Type your answer or ask for coaching tips…" rows="1"
+        onkeydown="handleKey(event)" oninput="resize(this)"></textarea>
+      <button class="send-btn" onclick="sendMsg()">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+          <path d="M12 6.5L1 1l2.5 5.5L1 12z" fill="white" stroke="white" stroke-width="0.5" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+</div>
+<script>
+const s = { type:'banking', qtype:'behavioral', diff:'easy', active:false, recording:false, qIdx:0, qDone:0, scores:[], startedAt:null, timerID:null };
+
+const META = {
+  banking:    { label:'Banking & Finance',        icon:'🏦', desc:'AI will ask you investment banking, private equity, and capital markets questions with instant scored feedback.' },
+  consulting: { label:'Management Consulting',    icon:'💼', desc:'Sharpen case interviews, behavioural rounds, and structured problem-solving for MBB and Big 4.' },
+  software:   { label:'Software Engineering',     icon:'⌨️', desc:'Nail technical and behavioural rounds at top tech companies — system design, coding, and culture-fit.' },
+  product:    { label:'Product Management',       icon:'📦', desc:'Practice product sense, metrics, and case questions for PM roles at growth-stage and FAANG companies.' },
+  marketing:  { label:'Marketing & Growth',       icon:'📊', desc:'Hone campaign strategy, analytics, and growth thinking for marketing and growth roles.' },
+  data:       { label:'Data & Analytics',         icon:'📈', desc:'Prepare for data science, analytics engineering, and ML engineer interviews with technical and case depth.' },
+};
+const QTYPES = { behavioral:'Behavioural', technical:'Technical', case:'Case Study' };
+
+const QUESTIONS = {
+  banking: {
+    behavioral: ["Tell me about a time you had to analyse complex financial data under pressure. Walk me through your approach.","Describe a situation where you had to explain a difficult financial concept to a non-finance stakeholder.","Give an example of when you identified a risk that others had overlooked. What did you do?","Tell me about a time you worked on a high-stakes transaction or deal. What was your specific contribution?","Describe a situation where you had to balance short-term results against long-term risk."],
+    technical:  ["Walk me through how you'd build a DCF model for a mid-market manufacturing company.","What are the key drivers in an LBO model and how do they affect returns to equity sponsors?","Explain the difference between enterprise value and equity value. When does the distinction matter?","How would you approach valuing a pre-revenue fintech startup? What comparables would you use?","Walk me through the three financial statements and explain exactly how they connect."],
+    case:       ["Your client is a regional bank considering acquiring a digital-payments startup valued at $200M. How would you advise them?","A large asset manager wants to expand into emerging markets. What factors would you analyse first?","Estimate the total addressable market for mobile banking in Southeast Asia."],
+  },
+  consulting: {
+    behavioral: ["Tell me about a time you had to rapidly get up to speed in an unfamiliar industry. How did you approach it?","Describe a situation where you had to influence a senior stakeholder without direct authority.","Give an example of when your initial hypothesis turned out to be completely wrong. How did you handle it?","Tell me about a time you had to work with a difficult team member under a tight client deadline.","Describe the most complex problem you've solved. What was your framework and where did it break down?"],
+    technical:  ["Walk me through how you'd structure a market entry strategy for a Fortune 500 consumer goods company.","How would you estimate the revenue impact of a 10% price increase across a consumer goods portfolio?","What frameworks would you use to rapidly assess a company's operational efficiency?"],
+    case:       ["Our client is a $2B retail chain experiencing flat revenue growth for three consecutive years. Diagnose the problem and recommend a path forward.","A pharma company is deciding between launching a new drug in five markets simultaneously or doing a phased rollout. What factors matter most?","Estimate the number of independent coffee shops in London."],
+  },
+  software: {
+    behavioral: ["Tell me about a time you had to debug a critical production issue under real-time pressure. What was your process?","Describe a situation where you disagreed with your tech lead's architectural decision. How did you handle it?","Give an example of a project where you had to make significant trade-offs between code quality and delivery speed.","Tell me about a time you had to learn a new technology stack very quickly to complete a project.","Describe the most technically challenging problem you've solved. Walk me through your thought process end to end."],
+    technical:  ["Explain the difference between horizontal and vertical scaling and when you'd choose each.","Walk me through how you'd design a URL shortener that handles 100 million requests per day.","What are the trade-offs between SQL and NoSQL? Give a concrete example of when you'd choose each.","Explain how React's reconciliation algorithm works and why it matters for performance.","How would you approach implementing a distributed rate limiter across multiple services?"],
+    case:       ["Design a real-time collaborative document editing system. Focus on the core architecture decisions and consistency guarantees.","You've inherited a monolithic application that's becoming a bottleneck at scale. How do you approach migrating it to microservices safely?"],
+  },
+  product: {
+    behavioral: ["Tell me about a product decision you made that you later regretted. What would you do differently today?","Describe a time you had to prioritise features when every stakeholder believed their request was highest priority.","Give an example of how data changed your initial product intuition in a meaningful way."],
+    technical:  ["How would you define and validate the north star metric for a B2B SaaS product?","Walk me through how you'd design and analyse an A/B test on a checkout flow change."],
+    case:       ["Design a feature for LinkedIn that increases meaningful engagement among senior professionals aged 40 and above.","Spotify is seeing a drop in podcast completion rates. How would you diagnose and address this?"],
+  },
+  marketing: {
+    behavioral: ["Tell me about a campaign that significantly underperformed expectations. What did you learn?","Describe a time you had to convince leadership to invest in a channel they were deeply sceptical of."],
+    technical:  ["Walk me through how you'd set up attribution modelling for a D2C brand with $5M in monthly ad spend.","How would you approach improving the conversion rate on a SaaS pricing page from first principles?"],
+    case:       ["A challenger brand wants to enter a market dominated by a single incumbent. Build a go-to-market strategy with limited budget."],
+  },
+  data: {
+    behavioral: ["Tell me about a time your analysis directly led to a significant business decision. How did you communicate it?","Describe a situation where you found an error in your analysis after you'd already presented the findings."],
+    technical:  ["Walk me through how you'd design a data pipeline for a real-time recommendation engine at scale.","Explain the difference between precision and recall with a concrete business example. When does each matter more?","How would you detect and handle outliers in a customer lifetime value model without losing signal?"],
+    case:       ["An e-commerce company wants to predict which customers are about to churn. Walk me through the full approach from problem framing to deployment."],
+  },
+};
+
+const SAMPLE_ANSWERS = [
+  "In my previous role, I was responsible for building the quarterly earnings model under a tight deadline before the board presentation. We had to reconcile three different data sources with conflicting figures. I prioritised the key revenue assumptions, clearly flagged the uncertainty ranges in the model, and delivered on time. The CFO used it directly in the board meeting.",
+  "The clearest example was during my internship. I was deep in an M&A analysis and noticed a discrepancy in the target's working capital that our initial model had missed. I raised it immediately with the senior associate rather than adjusting it quietly. We ended up revising our valuation down by about 15% and it changed the deal recommendation.",
+  "The most relevant case was a restructuring project where I had about two days to get fluent in a sector I had zero prior exposure to. I went straight to the 10-Ks of the three largest public comps, read two sell-side initiation reports, and had a 30-minute call with our sector expert. By day three I was running the analysis independently.",
+];
+
+const FEEDBACK = [
+  { score:91, body:"Strong answer. You used the STAR framework cleanly and your result was concrete. One refinement: slow down on the outcome — you had a strong impact number but moved past it quickly. Interviewers want to sit with that win.", tip:"Add a one-sentence reflection on what you'd do differently — it signals maturity." },
+  { score:79, body:"Good structure and a relevant example. To push this to a 9/10, be more explicit about your personal contribution — it sounds like a team win. Quantify the impact even roughly: '30% improvement' beats 'significant improvement'.", tip:"Use 'I' more deliberately when describing your specific actions within the team." },
+  { score:86, body:"Solid answer with good self-awareness. Your setup was clean and the action steps were well-articulated. The result was slightly vague — even a directional estimate strengthens it. Your pacing was good, no filler words detected.", tip:"End with a reflection: what would you do differently? It differentiates strong candidates." },
+  { score:89, body:"Really strong opening — you grabbed attention immediately. The logical chain was tight and your conclusion was confident. Watch one habit: you hedge with 'I think' in the middle section. You clearly know this material — own it.", tip:"Replace 'I think' with the direct assertion. Your credibility goes up immediately." },
+  { score:83, body:"Good instincts on framing. The example was differentiated. To elevate it: the 'Task' section was a bit long relative to 'Action'. Interviewers want to spend time in your specific decision-making.", tip:"Aim for 15% Situation, 15% Task, 50% Action, 20% Result as a rough ratio." },
+];
+
+const COACH_REPLIES = [
+  "Good instinct — that framing would land well with most interviewers. The confidence in your delivery helps.",
+  "Solid point. To strengthen it further, try leading with the business impact before explaining the method you used.",
+  "That's a common approach — just watch the jargon unless your interviewer has signalled they want that technical depth.",
+  "Nice structure. Can you add a specific outcome? Even a directional number is better than 'it went well'.",
+  "Good energy. Keep that. Confidence in delivery counts as much as content in a real interview room.",
+  "You're on the right track. One suggestion: cut the setup by half — interviewers want to get to your actions faster.",
+  "That's a strong angle. If you rehearsed that exact structure in the real interview, it would land.",
+];
+
+function selectType(btn) {
+  document.querySelectorAll('[data-type]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  s.type = btn.dataset.type;
+  updateCard();
+}
+function selectQtype(btn) {
+  document.querySelectorAll('[data-qtype]').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  s.qtype = btn.dataset.qtype;
+}
+function selectDiff(btn) {
+  document.querySelectorAll('.pill').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  s.diff = btn.textContent.toLowerCase();
+}
+function updateCard() {
+  const m = META[s.type];
+  document.getElementById('badgeIcon').textContent   = m.icon;
+  document.getElementById('badgeTxt').textContent    = m.label;
+  document.getElementById('sessionDesc').textContent = m.desc;
+}
+
+function startCountdown() {
+  if (s.active) return;
+  document.getElementById('startBtn').disabled = true;
+  const overlay  = document.getElementById('cdOverlay');
+  const numEl    = document.getElementById('cdNum');
+  const progress = document.getElementById('cdProgress');
+  const C        = 2 * Math.PI * 68;
+  progress.style.strokeDasharray  = String(C);
+  progress.style.strokeDashoffset = '0';
+  overlay.classList.add('show');
+  numEl.textContent = '5';
+  let n = 5;
+  const tick = setInterval(() => {
+    n--;
+    if (n > 0) {
+      numEl.textContent = String(n);
+      progress.style.strokeDashoffset = String(C * ((5-n)/5));
+    } else {
+      numEl.textContent = '🎤';
+      progress.style.strokeDashoffset = String(C);
+      clearInterval(tick);
+      setTimeout(() => { overlay.classList.remove('show'); beginSession(); }, 700);
+    }
+  }, 1000);
+}
+
+function beginSession() {
+  s.active=true; s.qIdx=0; s.qDone=0; s.scores=[]; s.startedAt=Date.now();
+  document.getElementById('idleWrap').style.display  = 'none';
+  document.getElementById('activeWrap').classList.add('show');
+  s.timerID = setInterval(() => {
+    const sec=Math.floor((Date.now()-s.startedAt)/1000);
+    const m=Math.floor(sec/60), ss=sec%60;
+    document.getElementById('statTime').textContent = m>0?`${m}m ${ss}s`:`${ss}s`;
+  }, 1000);
+  clearChat();
+  addMsg('ai', `Hi! I'm your SpeakFlow AI coach. I'll ask you ${META[s.type].label} interview questions — ${QTYPES[s.qtype].toLowerCase()} style, ${s.diff} difficulty.\n\nListen to each question, then click the mic to record your answer. I'll score and coach you after every response.\n\nLet's go.`);
+  setTimeout(showQuestion, 1100);
+}
+
+function showQuestion() {
+  const pool = QUESTIONS[s.type]?.[s.qtype] || QUESTIONS[s.type]?.behavioral || [];
+  const q = pool[s.qIdx % pool.length];
+  document.getElementById('qText').textContent    = q;
+  document.getElementById('qNum').textContent     = String(s.qIdx+1);
+  document.getElementById('qTypeLbl').textContent = QTYPES[s.qtype]||'Behavioural';
+  document.getElementById('micHint').textContent  = 'Click mic to start recording your answer';
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('waveform').classList.add('idle');
+  s.recording = false;
+  addMsg('ai', `**Question ${s.qIdx+1}:** ${q}`);
+  speakText(q);
+}
+
+function toggleRecording() {
+  if (!s.active) return;
+  s.recording = !s.recording;
+  const micBtn = document.getElementById('micBtn');
+  const wf     = document.getElementById('waveform');
+  const hint   = document.getElementById('micHint');
+  if (s.recording) {
+    micBtn.classList.add('recording');
+    wf.classList.remove('idle');
+    hint.textContent = 'Recording… click again when done';
+    addTyping();
+  } else {
+    micBtn.classList.remove('recording');
+    wf.classList.add('idle');
+    hint.textContent = 'Processing your answer…';
+    removeTyping();
+    addMsg('user', SAMPLE_ANSWERS[s.qIdx % SAMPLE_ANSWERS.length]);
+    setTimeout(giveFeedback, 1400);
+  }
+}
+
+function giveFeedback() {
+  const fb = FEEDBACK[Math.floor(Math.random()*FEEDBACK.length)];
+  s.qDone++; s.scores.push(fb.score);
+  const avg = Math.round(s.scores.reduce((a,b)=>a+b,0)/s.scores.length);
+  document.getElementById('statQ').textContent   = String(s.qDone);
+  document.getElementById('statAvg').textContent = String(avg);
+  addMsg('ai', `**Score: ${fb.score}/100**\n\n${fb.body}\n\n💡 *${fb.tip}*`, true);
+  s.qIdx++;
+  if (s.qDone < 5) {
+    setTimeout(() => {
+      addMsg('ai', "Ready for the next question? Click the mic when you're set.");
+      setTimeout(showQuestion, 1000);
+    }, 2800);
+  } else {
+    setTimeout(wrapSession, 3000);
+  }
+}
+
+function wrapSession() {
+  const avg = Math.round(s.scores.reduce((a,b)=>a+b,0)/s.scores.length);
+  const remark = avg>=85
+    ? 'Strong session. Focus area for next time: tighten the result section — your structure is already solid, so extra precision on outcomes will move you to a 95+.'
+    : 'Good effort. Primary focus: commit more fully to the STAR structure — your situations and tasks are clear, but push the "Result" segment with specific numbers to lift your score.';
+  addMsg('ai', `Session complete! You answered **${s.qDone} question${s.qDone!==1?'s':''}** with an average score of **${avg}/100**.\n\n${remark}`);
+  endSession();
+}
+
+function endSession() {
+  s.active=false; s.recording=false;
+  clearInterval(s.timerID);
+  window.speechSynthesis&&window.speechSynthesis.cancel();
+  document.getElementById('idleWrap').style.display='';
+  document.getElementById('activeWrap').classList.remove('show');
+  document.getElementById('startBtn').disabled=false;
+  document.getElementById('micBtn').classList.remove('recording');
+  document.getElementById('waveform').classList.add('idle');
+}
+
+function speakText(text) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.rate=0.88; u.pitch=1.0;
+  const voices=window.speechSynthesis.getVoices();
+  const pick=voices.find(v=>/Samantha|Daniel|Karen|Google UK|Moira/.test(v.name));
+  if(pick) u.voice=pick;
+  window.speechSynthesis.speak(u);
+}
+if('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged=()=>{};
+
+function addMsg(role, text, isFeedback=false) {
+  const empty=document.getElementById('chatEmpty');
+  if(empty) empty.remove();
+  const msgs=document.getElementById('chatMsgs');
+  const wrap=document.createElement('div');
+  wrap.className=`msg ${role}`;
+  const html=text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
+  wrap.innerHTML=`<div class="msg-from">${role==='ai'?'SpeakFlow AI':'You'}</div><div class="msg-bubble${isFeedback?' feedback-card':''}">${isFeedback?'<div class="fb-score">✦ Feedback</div>':''}${html}</div>`;
+  msgs.appendChild(wrap);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+function addTyping() {
+  const msgs=document.getElementById('chatMsgs');
+  const wrap=document.createElement('div');
+  wrap.className='msg ai'; wrap.id='typing';
+  wrap.innerHTML='<div class="msg-from">SpeakFlow AI</div><div class="typing-wrap"><div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div></div>';
+  msgs.appendChild(wrap);
+  msgs.scrollTop=msgs.scrollHeight;
+}
+function removeTyping() { const t=document.getElementById('typing'); if(t) t.remove(); }
+function clearChat() {
+  const msgs=document.getElementById('chatMsgs');
+  msgs.innerHTML='';
+  if(!s.active) msgs.innerHTML='<div class="chat-empty" id="chatEmpty"><div class="chat-empty-icon">💬</div><div class="chat-empty-txt">Start a session to practise with your AI interview coach</div></div>';
+}
+function sendMsg() {
+  const input=document.getElementById('chatInput');
+  const txt=input.value.trim();
+  if(!txt) return;
+  addMsg('user',txt);
+  input.value=''; resize(input);
+  const reply=COACH_REPLIES[Math.floor(Math.random()*COACH_REPLIES.length)];
+  setTimeout(()=>{ addTyping(); setTimeout(()=>{ removeTyping(); addMsg('ai',reply); },900); },300);
+}
+function handleKey(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg();} }
+function resize(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,110)+'px'; }
+updateCard();
+</script>
+</body>
+</html>
