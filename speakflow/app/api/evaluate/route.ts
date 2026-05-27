@@ -18,10 +18,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
-    const feedback = await generateFeedback(
-      messages as Array<{ role: string; text: string }>
+  const isMessageArray = (arr: unknown[]): arr is Array<{ role: string; text: string }> =>
+    arr.every(
+      m =>
+        typeof m === 'object' &&
+        m !== null &&
+        typeof (m as Record<string, unknown>).role === 'string' &&
+        typeof (m as Record<string, unknown>).text === 'string'
     );
+
+  if (!isMessageArray(messages)) {
+    return NextResponse.json(
+      { error: 'Each message must have a string role and string text' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const feedback = await generateFeedback(messages);
     return NextResponse.json(feedback);
   } catch (error) {
     console.error('[POST /api/evaluate]', error);
