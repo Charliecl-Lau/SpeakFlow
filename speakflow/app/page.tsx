@@ -1,15 +1,9 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
-
-// ── Types ──────────────────────────────────────────────────────
-type Role = 'interviewer' | 'user';
-
-type Message = {
-  role: Role;
-  text: string;
-  timestamp: number;
-  isFeedback?: boolean;
-};
+import type { Role, Message } from '@/lib/types';
+import { fetchInterviewerReply, fetchTts, fetchEvaluation } from '@/lib/api';
+import { useSpeechRecognition } from '@/lib/useSpeechRecognition';
+import { countFillers, computeWpm, computeConfidence } from '@/lib/metrics';
 
 // ── Constants ──────────────────────────────────────────────────
 const META: Record<string, { label: string; desc: string }> = {
