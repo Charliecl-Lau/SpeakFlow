@@ -227,13 +227,62 @@ export default function Home() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+    stopRecognition();
     setSessionActive(false);
     setIsListening(false);
     setIsSpeaking(false);
     setIsThinking(false);
     setIsRecording(false);
     if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
-  }, []);
+  }, [stopRecognition]);
+
+  // ── Evaluate & feedback ──────────────────────────────────────
+  const handleEndSession = useCallback(async () => {
+    stopRecognition();
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsThinking(true);
+    setIsListening(false);
+    setIsRecording(false);
+    setIsSpeaking(false);
+
+    const transcriptMsgs = messagesRef.current.filter(m => !m.isFeedback);
+
+    try {
+      const fb = await fetchEvaluation(transcriptMsgs);
+
+      const feedbackText = [
+        `**Overall Score: ${fb.overallScore}/100**`,
+        `Clarity: ${fb.clarityScore} · Confidence: ${fb.confidenceScore} · Structure: ${fb.structureScore} · Specificity: ${fb.specificityScore}`,
+        '',
+        '**Strengths**',
+        fb.strengths.map(s => `• ${s}`).join('\n'),
+        '',
+        '**Improvements**',
+        fb.weaknesses.map(w => `• ${w}`).join('\n'),
+        '',
+        '**Improved Answer**',
+        fb.improvedAnswer,
+        '',
+        '**Next Practice Focus**',
+        fb.nextPracticeAdvice,
+        ...(fb.fillerWords.length > 0
+          ? ['', `**Filler words detected:** ${fb.fillerWords.join(', ')}`]
+          : []),
+      ].join('\n');
+
+      setIsThinking(false);
+      addMessage('interviewer', feedbackText, true);
+    } catch {
+      setIsThinking(false);
+      addMessage('interviewer', 'Feedback unavailable. Try ending the session again.');
+    }
+
+    endSession();
+  }, [stopRecognition, endSession, addMessage]);
 
   // ── Text input ───────────────────────────────────────────────
   const sendMsg = useCallback(async () => {
