@@ -162,6 +162,35 @@ export default function Home() {
     setIsSpeaking(false);
   }, [interviewType, questionType, difficulty, addMessage]);
 
+  const handleSpeechResult = useCallback((transcript: string, startedAt: number) => {
+    const elapsedSeconds = Math.max(1, (Date.now() - startedAt) / 1000);
+    const words          = transcript.trim().split(/\s+/).filter(Boolean);
+    const { count, words: fw } = countFillers(transcript);
+    const wpmValue  = computeWpm(words.length, elapsedSeconds);
+    const confValue = computeConfidence(count);
+
+    setFillerCount(count);
+    setFillerList(fw);
+    setWpm(wpmValue);
+    setConfidence(confValue);
+    setIsRecording(false);
+    setIsListening(false);
+
+    const userMsg: Message = { role: 'user', text: transcript, timestamp: Date.now() };
+    messagesRef.current = [...messagesRef.current, userMsg];
+    setMessages(prev => [...prev, userMsg]);
+    handleTurn();
+  }, [countFillers, computeWpm, computeConfidence, handleTurn]);
+
+  const handleSpeechError = useCallback((error: string) => {
+    setIsRecording(false);
+    setIsListening(false);
+    addMessage('interviewer', `Voice input error: ${error}. Please use the text box below.`);
+  }, [addMessage]);
+
+  const { start: startRecognition, stop: stopRecognition, isSupported: isSpeechSupported } =
+    useSpeechRecognition({ onResult: handleSpeechResult, onError: handleSpeechError });
+
   // ── Session lifecycle ────────────────────────────────────────
   const beginSession = useCallback(() => {
     setSessionActive(true);
@@ -214,12 +243,26 @@ export default function Home() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     addMessage('user', txt);
     setIsThinking(true);
-    // Mock response — Plan 4 replaces with POST /api/interviewer
-    setTimeout(() => {
+    // Add user message to ref immediately so fetchInterviewerReply sees it
+    const userMsg: Message = { role: 'user', text: txt, timestamp: Date.now() };
+    messagesRef.current = [...messagesRef.current, userMsg];
+
+    try {
+      const reply = await fetchInterviewerReply({
+        interviewType,
+        questionType,
+        difficulty,
+        messages: messagesRef.current,
+      });
       setIsThinking(false);
-      addMessage('interviewer', 'Good point. To strengthen it, try leading with the specific outcome before explaining your approach.');
-    }, 1200);
-  }, [chatInput, isThinking, addMessage]);
+      const aiMsg: Message = { role: 'interviewer', text: reply, timestamp: Date.now() };
+      messagesRef.current = [...messagesRef.current, aiMsg];
+      addMessage('interviewer', reply);
+    } catch {
+      setIsThinking(false);
+      addMessage('interviewer', "Sorry, I couldn't generate a question. Try again.");
+    }
+  }, [chatInput, isThinking, addMessage, interviewType, questionType, difficulty]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
@@ -239,6 +282,7 @@ export default function Home() {
   const paceFillBg     = wpm === null ? 'var(--success)' : (wpm >= 110 && wpm <= 150) ? 'var(--success)' : wpm < 80 ? 'var(--warn)' : 'var(--danger)';
   const paceClass      = `metric-val${wpm !== null ? (wpm < 80 ? ' warn' : wpm > 170 ? ' danger' : '') : ''}`;
   const micDisabled    = isThinking || isSpeaking;
+  const micUnsupported = typeof window !== 'undefined' && !isSpeechSupported();
 
   return (
     <>
@@ -369,8 +413,22 @@ export default function Home() {
             </div>
             <button
               className={`mic-btn${isRecording ? ' recording' : ''}`}
-              onClick={() => {/* Plan 4 wires SpeechRecognition here */}}
-              disabled={micDisabled}
+              onClick={() => {
+                if (!isSpeechSupported()) {
+                  addMessage('interviewer', 'Voice input not supported in this browser. Use the text box below.');
+                  return;
+                }
+                if (isRecording) {
+                  stopRecognition();
+                  setIsRecording(false);
+                  setIsListening(false);
+                } else {
+                  setIsRecording(true);
+                  setIsListening(true);
+                  startRecognition();
+                }
+              }}
+              disabled={micDisabled || micUnsupported}
               aria-label="Toggle recording"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -380,11 +438,13 @@ export default function Home() {
               </svg>
             </button>
             <div className="mic-hint">
-              {micDisabled
-                ? (isSpeaking ? 'Listen to the question…' : 'Thinking…')
-                : isRecording
-                  ? 'Recording… click again when done'
-                  : 'Click mic to start recording your answer'}
+              {micUnsupported
+                ? 'Voice input not supported in this browser. Use the text box below.'
+                : micDisabled
+                  ? (isSpeaking ? 'Listen to the question…' : 'Thinking…')
+                  : isRecording
+                    ? 'Recording… click again when done'
+                    : 'Click mic to start recording your answer'}
             </div>
             <button className="end-btn" onClick={endSession}>End session</button>
           </div>
