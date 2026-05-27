@@ -495,7 +495,7 @@ export default function Home() {
                     ? 'Recording… click again when done'
                     : 'Click mic to start recording your answer'}
             </div>
-            <button className="end-btn" onClick={endSession}>End session</button>
+            <button className="end-btn" onClick={handleEndSession} disabled={isThinking}>End session</button>
           </div>
 
           {/* Countdown overlay */}
