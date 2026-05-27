@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 
 type UseSpeechRecognitionOptions = {
   onResult: (transcript: string, startedAt: number) => void;
@@ -10,12 +10,16 @@ export function useSpeechRecognition({ onResult, onError }: UseSpeechRecognition
   const recognitionRef = useRef<any | null>(null);
   const startedAtRef   = useRef<number>(0);
 
+  useEffect(() => () => { recognitionRef.current?.stop(); }, []);
+
   const isSupported = useCallback((): boolean => {
     return typeof window !== 'undefined' &&
       ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
   }, []);
 
   const start = useCallback(() => {
+    if (recognitionRef.current) return;
+
     if (!isSupported()) {
       onError('SpeechRecognition not supported in this browser.');
       return;
