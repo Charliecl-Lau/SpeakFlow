@@ -2,6 +2,19 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const MODEL_ID = process.env.GEMMA_MODEL_ID ?? 'gemma-3-27b-it';
 
+export type EvaluationFeedback = {
+  overallScore: number;
+  clarityScore: number;
+  confidenceScore: number;
+  structureScore: number;
+  specificityScore: number;
+  fillerWords: string[];
+  strengths: string[];
+  weaknesses: string[];
+  improvedAnswer: string;
+  nextPracticeAdvice: string;
+};
+
 function getGenAI() {
   if (!process.env.GOOGLE_AI_API_KEY) {
     throw new Error('GOOGLE_AI_API_KEY is not set');
@@ -38,10 +51,58 @@ Evaluate use of STAR structure: Situation, Task, Action, Result.`;
 
 export function parseEvaluationResponse(raw: string): object {
   const cleaned = raw
-    .replace(/^```json\s*/i, '')
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
     .trim();
   return JSON.parse(cleaned);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isScore(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
+export function validateEvaluationFeedback(value: unknown): EvaluationFeedback {
+  if (!isRecord(value)) {
+    throw new Error('Evaluation response must be a JSON object');
+  }
+
+  const scoreFields = [
+    'overallScore',
+    'clarityScore',
+    'confidenceScore',
+    'structureScore',
+    'specificityScore',
+  ] as const;
+  for (const field of scoreFields) {
+    if (!isScore(value[field])) {
+      throw new Error(`Evaluation response field ${field} must be a number from 0 to 100`);
+    }
+  }
+
+  const listFields = ['fillerWords', 'strengths', 'weaknesses'] as const;
+  for (const field of listFields) {
+    if (!isStringArray(value[field])) {
+      throw new Error(`Evaluation response field ${field} must be a string array`);
+    }
+  }
+
+  if (typeof value.improvedAnswer !== 'string') {
+    throw new Error('Evaluation response field improvedAnswer must be a string');
+  }
+  if (typeof value.nextPracticeAdvice !== 'string') {
+    throw new Error('Evaluation response field nextPracticeAdvice must be a string');
+  }
+
+  return value as EvaluationFeedback;
 }
 
 export async function generateInterviewerReply(params: {
@@ -75,7 +136,7 @@ export async function generateInterviewerReply(params: {
 
 export async function generateFeedback(
   messages: Array<{ role: string; text: string }>
-): Promise<object> {
+): Promise<EvaluationFeedback> {
   const genAI = getGenAI();
   const model = genAI.getGenerativeModel({ model: MODEL_ID });
 
@@ -88,5 +149,5 @@ export async function generateFeedback(
     contents: [{ role: 'user', parts: [{ text: transcript }] }],
   });
 
-  return parseEvaluationResponse(result.response.text());
+  return validateEvaluationFeedback(parseEvaluationResponse(result.response.text()));
 }
