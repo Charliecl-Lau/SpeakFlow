@@ -5,9 +5,38 @@ type UseSpeechRecognitionOptions = {
   onError:  (error: string) => void;
 };
 
+type SpeechRecognitionResultLike = {
+  0: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = {
+  error?: string;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 export function useSpeechRecognition({ onResult, onError }: UseSpeechRecognitionOptions) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const startedAtRef   = useRef<number>(0);
 
   useEffect(() => () => { recognitionRef.current?.stop(); }, []);
@@ -25,10 +54,13 @@ export function useSpeechRecognition({ onResult, onError }: UseSpeechRecognition
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SR: new () => any = (window as any).SpeechRecognition
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      || (window as any).webkitSpeechRecognition;
+    const speechWindow = window as WindowWithSpeechRecognition;
+    const SR = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+
+    if (!SR) {
+      onError('SpeechRecognition not supported in this browser.');
+      return;
+    }
 
     const recognition = new SR();
     recognition.continuous     = false;
@@ -37,15 +69,15 @@ export function useSpeechRecognition({ onResult, onError }: UseSpeechRecognition
 
     startedAtRef.current = Date.now();
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const transcript = Array.from(event.results)
-        .map((r: any) => r[0].transcript)
+        .map(r => r[0].transcript)
         .join(' ')
         .trim();
       if (transcript) onResult(transcript, startedAtRef.current);
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
       onError(event.error ?? 'SpeechRecognition error');
     };
 

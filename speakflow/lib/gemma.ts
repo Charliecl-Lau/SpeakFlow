@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
-const MODEL_ID = process.env.GEMMA_MODEL_ID ?? 'gemma-3-27b-it';
+export const DEFAULT_GEMMA_MODEL_ID = 'gemma-4-31b-it';
 
 export type EvaluationFeedback = {
   overallScore: number;
@@ -15,11 +15,16 @@ export type EvaluationFeedback = {
   nextPracticeAdvice: string;
 };
 
-function getGenAI() {
-  if (!process.env.GOOGLE_AI_API_KEY) {
+export function getGemmaModelId(): string {
+  return process.env.GEMMA_MODEL_ID ?? DEFAULT_GEMMA_MODEL_ID;
+}
+
+function getAI() {
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  if (!apiKey) {
     throw new Error('GOOGLE_AI_API_KEY is not set');
   }
-  return new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+  return new GoogleGenAI({ apiKey });
 }
 
 export function buildInterviewerPrompt(
@@ -112,8 +117,7 @@ export async function generateInterviewerReply(params: {
   messages: Array<{ role: string; text: string }>;
 }): Promise<string> {
   const { interviewType, questionType, difficulty, messages } = params;
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: MODEL_ID });
+  const ai = getAI();
 
   const systemInstruction = buildInterviewerPrompt(interviewType, questionType, difficulty);
 
@@ -126,28 +130,32 @@ export async function generateInterviewerReply(params: {
     ? contents
     : [{ role: 'user' as const, parts: [{ text: 'Begin the interview.' }] }, ...contents];
 
-  const result = await model.generateContent({
-    systemInstruction,
+  const result = await ai.models.generateContent({
+    model: getGemmaModelId(),
     contents: safeContents,
+    config: { systemInstruction },
   });
 
-  return result.response.text().trim();
+  return (result.text ?? '').trim();
 }
 
 export async function generateFeedback(
   messages: Array<{ role: string; text: string }>
 ): Promise<EvaluationFeedback> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: MODEL_ID });
+  const ai = getAI();
 
   const transcript = messages
     .map(m => `${m.role === 'interviewer' ? 'Interviewer' : 'Candidate'}: ${m.text}`)
     .join('\n\n');
 
-  const result = await model.generateContent({
-    systemInstruction: buildEvaluationPrompt(),
+  const result = await ai.models.generateContent({
+    model: getGemmaModelId(),
     contents: [{ role: 'user', parts: [{ text: transcript }] }],
+    config: {
+      systemInstruction: buildEvaluationPrompt(),
+      responseMimeType: 'application/json',
+    },
   });
 
-  return validateEvaluationFeedback(parseEvaluationResponse(result.response.text()));
+  return validateEvaluationFeedback(parseEvaluationResponse(result.text ?? ''));
 }

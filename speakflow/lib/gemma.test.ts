@@ -1,9 +1,32 @@
 import {
   buildInterviewerPrompt,
   buildEvaluationPrompt,
+  DEFAULT_GEMMA_MODEL_ID,
+  getGemmaModelId,
   parseEvaluationResponse,
   validateEvaluationFeedback,
 } from './gemma';
+
+describe('getGemmaModelId', () => {
+  const originalModelId = process.env.GEMMA_MODEL_ID;
+
+  afterEach(() => {
+    process.env.GEMMA_MODEL_ID = originalModelId;
+  });
+
+  test('defaults to Gemma 4 31B IT', () => {
+    delete process.env.GEMMA_MODEL_ID;
+
+    expect(DEFAULT_GEMMA_MODEL_ID).toBe('gemma-4-31b-it');
+    expect(getGemmaModelId()).toBe('gemma-4-31b-it');
+  });
+
+  test('uses GEMMA_MODEL_ID override when provided', () => {
+    process.env.GEMMA_MODEL_ID = 'custom-model';
+
+    expect(getGemmaModelId()).toBe('custom-model');
+  });
+});
 
 describe('buildInterviewerPrompt', () => {
   test('includes interview type and difficulty in system prompt', () => {

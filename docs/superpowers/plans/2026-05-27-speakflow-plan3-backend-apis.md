@@ -2,15 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement all three API routes (`/api/interviewer`, `/api/tts`, `/api/evaluate`) and the two library helpers (`lib/gemma.ts`, `lib/elevenlabs.ts`) that they use.
+**Goal:** Implement all three API routes (`/api/interviewer`, `/api/tts`, `/api/evaluate`) and the two library helpers (`lib/gemma.ts`, `lib/gemini-tts.ts`) that they use. Speech-to-text is handled entirely client-side via the Browser `SpeechRecognition` API — no backend STT route is needed.
 
-**Architecture:** Each API route is a thin Next.js route handler that validates the request and delegates to a lib function. The lib functions contain all the external API logic and are independently testable. `lib/gemma.ts` wraps Google AI Studio. `lib/elevenlabs.ts` wraps the ElevenLabs REST API.
+**Architecture:** Each API route is a thin Next.js route handler that validates the request and delegates to a lib function. The lib functions contain all the external API logic and are independently testable. `lib/gemma.ts` wraps Google AI Studio for chat and evaluation. `lib/gemini-tts.ts` wraps the Gemini 2.5 Flash TTS model (also via Google AI Studio) for audio generation.
 
-**Tech Stack:** Next.js 14 Route Handlers, `@google/generative-ai`, ElevenLabs REST API, TypeScript
+**Tech Stack:** Next.js 14 Route Handlers, `@google/genai`, Gemini 2.5 Flash TTS, Browser SpeechRecognition API (frontend only), TypeScript
 
 **Dependency on other plans:** Requires Plan 1 (scaffold) to be complete. Runs in parallel with Plan 2. Plan 4 depends on this being done.
 
-**Prerequisite check:** Confirm `speakflow/.env.local` has real values for `GOOGLE_AI_API_KEY`, `ELEVENLABS_API_KEY`, and `ELEVENLABS_VOICE_ID` before running smoke tests.
+**Prerequisite check:** Confirm `speakflow/.env.local` has a real value for `GOOGLE_AI_API_KEY` before running smoke tests. No separate TTS API key is required — TTS shares the same Google AI key. No STT key is required — it uses the browser's native `window.SpeechRecognition`.
 
 ---
 
@@ -93,18 +93,16 @@ Expected: FAIL — `Cannot find module './gemma'`
 Create `speakflow/lib/gemma.ts`:
 
 ```ts
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 
-// Confirm the exact model ID in Google AI Studio console:
-// https://aistudio.google.com/app/models
-// Common IDs: "gemma-3-27b-it", "gemma-2-27b-it"
-const MODEL_ID = process.env.GEMMA_MODEL_ID ?? 'gemma-3-27b-it';
+// gemini-2.5-flash: lower latency, better instruction-following, and more
+// reliable JSON output than Gemma hosted models for this MVP use case.
+const MODEL_ID = process.env.GEMMA_MODEL_ID ?? 'gemini-2.5-flash';
 
-function getGenAI() {
-  if (!process.env.GOOGLE_AI_API_KEY) {
-    throw new Error('GOOGLE_AI_API_KEY is not set');
-  }
-  return new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+function getAI() {
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_AI_API_KEY is not set');
+  return new GoogleGenAI({ apiKey });
 }
 
 export function buildInterviewerPrompt(
@@ -149,8 +147,7 @@ export async function generateInterviewerReply(params: {
   messages: Array<{ role: string; text: string }>;
 }): Promise<string> {
   const { interviewType, questionType, difficulty, messages } = params;
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: MODEL_ID });
+  const ai = getAI();
 
   const systemInstruction = buildInterviewerPrompt(interviewType, questionType, difficulty);
 
@@ -165,30 +162,36 @@ export async function generateInterviewerReply(params: {
     ? contents
     : [{ role: 'user' as const, parts: [{ text: 'Begin the interview.' }] }, ...contents];
 
-  const result = await model.generateContent({
-    systemInstruction,
+  const result = await ai.models.generateContent({
+    model: MODEL_ID,
     contents: safeContents,
+    config: { systemInstruction },
   });
 
-  return result.response.text().trim();
+  return (result.text ?? '').trim();
 }
 
 export async function generateFeedback(
   messages: Array<{ role: string; text: string }>
 ): Promise<object> {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: MODEL_ID });
+  const ai = getAI();
 
   const transcript = messages
     .map(m => `${m.role === 'interviewer' ? 'Interviewer' : 'Candidate'}: ${m.text}`)
     .join('\n\n');
 
-  const result = await model.generateContent({
-    systemInstruction: buildEvaluationPrompt(),
+  // responseMimeType enforces JSON output at the API level, eliminating
+  // markdown fence wrapping without relying solely on prompt engineering.
+  const result = await ai.models.generateContent({
+    model: MODEL_ID,
     contents: [{ role: 'user', parts: [{ text: transcript }] }],
+    config: {
+      systemInstruction: buildEvaluationPrompt(),
+      responseMimeType: 'application/json',
+    },
   });
 
-  return parseEvaluationResponse(result.response.text());
+  return parseEvaluationResponse(result.text ?? '');
 }
 ```
 
@@ -204,124 +207,156 @@ Expected: all tests PASS (the unit tests cover pure functions only — no networ
 
 ```powershell
 git add speakflow/lib/gemma.ts speakflow/lib/gemma.test.ts
-git commit -m "feat: implement Gemma AI client with testable prompt builders
+git commit -m "feat: implement Gemini 2.5 Flash AI client with testable prompt builders
 
-Add lib/gemma.ts wrapping Google AI Studio for question generation and
-session evaluation. Prompt-building and response-parsing are pure functions
-so they can be unit tested without API calls. generateInterviewerReply()
-maps our role convention (interviewer/user) to Gemini's (model/user)."
+Add lib/gemma.ts wrapping Google AI Studio (gemini-2.5-flash) for question
+generation and session evaluation. Uses the modern @google/genai GoogleGenAI
+client and ai.models.generateContent() API. Prompt-building and response-parsing
+are pure functions unit-tested without API calls. generateFeedback() sets
+responseMimeType:'application/json' to enforce structured output at the API
+level rather than relying solely on prompt engineering."
 ```
 
 ---
 
-### Task 2: Implement `lib/elevenlabs.ts`
+### Task 2: Implement `lib/gemini-tts.ts`
 
 **Files:**
-- Create: `speakflow/lib/elevenlabs.ts`
-- Create: `speakflow/lib/elevenlabs.test.ts`
+- Create: `speakflow/lib/gemini-tts.ts`
+- Create: `speakflow/lib/gemini-tts.test.ts`
+
+**How Gemini TTS works:** The Gemini 2.5 Flash TTS model returns raw PCM audio (LINEAR16, 24 kHz, mono) encoded as base64 in the `inlineData` of the response. We wrap the PCM bytes in a minimal WAV header so browsers can play it without extra decoding steps. The WAV wrapping is a pure, testable function.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `speakflow/lib/elevenlabs.test.ts`:
+Create `speakflow/lib/gemini-tts.test.ts`:
 
 ```ts
-import { buildTtsRequestBody } from './elevenlabs';
+import { buildWavHeader, buildWavBuffer } from './gemini-tts';
 
-describe('buildTtsRequestBody', () => {
-  test('uses eleven_turbo_v2 model', () => {
-    const body = buildTtsRequestBody('Hello world');
-    expect(body.model_id).toBe('eleven_turbo_v2');
+describe('buildWavHeader', () => {
+  test('produces a 44-byte WAV header', () => {
+    const header = buildWavHeader(1000);
+    expect(header.byteLength).toBe(44);
   });
 
-  test('includes the input text', () => {
-    const body = buildTtsRequestBody('Tell me about yourself');
-    expect(body.text).toBe('Tell me about yourself');
+  test('starts with RIFF marker', () => {
+    const header = buildWavHeader(1000);
+    const view = new DataView(header);
+    const riff = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+    expect(riff).toBe('RIFF');
   });
 
-  test('includes required voice settings', () => {
-    const body = buildTtsRequestBody('Hello');
-    expect(body.voice_settings.stability).toBe(0.5);
-    expect(body.voice_settings.similarity_boost).toBe(0.75);
+  test('embeds PCM data size in chunk size field', () => {
+    const pcmLength = 2048;
+    const header = buildWavHeader(pcmLength);
+    const view = new DataView(header);
+    // Bytes 4-7: total file size - 8
+    expect(view.getUint32(4, true)).toBe(pcmLength + 44 - 8);
+  });
+});
+
+describe('buildWavBuffer', () => {
+  test('returns a Buffer whose length is 44 + pcm length', () => {
+    const pcm = Buffer.alloc(512);
+    const wav = buildWavBuffer(pcm);
+    expect(wav.length).toBe(44 + 512);
   });
 });
 ```
 
-- [ ] **Step 2: Run test to confirm it fails**
+- [ ] **Step 2: Run tests to confirm they fail**
 
 ```powershell
-npm test -- --testPathPattern=elevenlabs
+npm test -- --testPathPattern=gemini-tts
 ```
 
-Expected: FAIL — `Cannot find module './elevenlabs'`
+Expected: FAIL — `Cannot find module './gemini-tts'`
 
-- [ ] **Step 3: Implement `lib/elevenlabs.ts`**
+- [ ] **Step 3: Implement `lib/gemini-tts.ts`**
 
-Create `speakflow/lib/elevenlabs.ts`:
+Create `speakflow/lib/gemini-tts.ts`:
 
 ```ts
-const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
+import { GoogleGenAI } from '@google/genai';
 
-export function buildTtsRequestBody(text: string): {
-  text: string;
-  model_id: string;
-  voice_settings: { stability: number; similarity_boost: number };
-} {
-  return {
-    text,
-    model_id: 'eleven_turbo_v2',
-    voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+// Aoede is a natural-sounding en-US voice available on Gemini TTS.
+// Full voice list: https://ai.google.dev/gemini-api/docs/speech-generation
+const VOICE_NAME = 'Aoede';
+const SAMPLE_RATE = 24000;
+
+export function buildWavHeader(pcmDataLength: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(44);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
   };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + pcmDataLength, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);      // PCM subchunk size
+  view.setUint16(20, 1, true);       // PCM format
+  view.setUint16(22, 1, true);       // mono
+  view.setUint32(24, SAMPLE_RATE, true);
+  view.setUint32(28, SAMPLE_RATE * 2, true); // byte rate (16-bit mono)
+  view.setUint16(32, 2, true);       // block align
+  view.setUint16(34, 16, true);      // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, pcmDataLength, true);
+  return buffer;
+}
+
+export function buildWavBuffer(pcmBuffer: Buffer): Buffer {
+  const header = Buffer.from(buildWavHeader(pcmBuffer.length));
+  return Buffer.concat([header, pcmBuffer]);
 }
 
 export async function textToSpeech(text: string): Promise<Buffer> {
-  const voiceId = process.env.ELEVENLABS_VOICE_ID;
-  const apiKey  = process.env.ELEVENLABS_API_KEY;
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_AI_API_KEY is not set');
 
-  if (!voiceId || !apiKey) {
-    throw new Error('ELEVENLABS_VOICE_ID and ELEVENLABS_API_KEY must be set');
-  }
+  const ai = new GoogleGenAI({ apiKey });
 
-  const response = await fetch(
-    `${ELEVENLABS_API_BASE}/text-to-speech/${voiceId}`,
-    {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg',
+  const response = await ai.models.generateContent({
+    model: TTS_MODEL,
+    contents: [{ role: 'user', parts: [{ text }] }],
+    config: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } },
       },
-      body: JSON.stringify(buildTtsRequestBody(text)),
-    }
-  );
+    },
+  });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`ElevenLabs API error ${response.status}: ${errorText}`);
-  }
+  const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+  if (!audioData) throw new Error('Gemini TTS returned no audio data');
 
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const pcm = Buffer.from(audioData, 'base64');
+  return buildWavBuffer(pcm);
 }
 ```
 
 - [ ] **Step 4: Run tests to confirm they pass**
 
 ```powershell
-npm test -- --testPathPattern=elevenlabs
+npm test -- --testPathPattern=gemini-tts
 ```
 
-Expected: all 3 tests PASS.
+Expected: all 3 tests in `buildWavHeader` and 1 in `buildWavBuffer` PASS (pure functions, no network calls).
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add speakflow/lib/elevenlabs.ts speakflow/lib/elevenlabs.test.ts
-git commit -m "feat: implement ElevenLabs TTS client with testable request builder
+git add speakflow/lib/gemini-tts.ts speakflow/lib/gemini-tts.test.ts
+git commit -m "feat: implement Gemini 2.5 Flash TTS client
 
-Add lib/elevenlabs.ts proxying text to the ElevenLabs eleven_turbo_v2 model.
-The request-body builder is a pure function so voice settings can be unit
-tested without network calls. textToSpeech() returns a Buffer for the route
-handler to stream as audio/mpeg."
+Add lib/gemini-tts.ts using the Gemini 2.5 Flash TTS model via Google AI
+Studio (same GOOGLE_AI_API_KEY, no extra credential). The API returns raw
+PCM audio; buildWavBuffer() wraps it in a 44-byte WAV header so browsers
+can decode it natively. WAV helpers are pure functions and unit-tested
+without network calls."
 ```
 
 ---
@@ -428,7 +463,7 @@ Create `speakflow/app/api/tts/route.ts`:
 
 ```ts
 import { NextRequest, NextResponse } from 'next/server';
-import { textToSpeech } from '@/lib/elevenlabs';
+import { textToSpeech } from '@/lib/gemini-tts';
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -448,7 +483,7 @@ export async function POST(req: NextRequest) {
     const audioBuffer = await textToSpeech(text.trim());
     return new NextResponse(audioBuffer, {
       headers: {
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': 'audio/wav',
         'Content-Length': String(audioBuffer.length),
         'Cache-Control': 'no-store',
       },
@@ -467,21 +502,22 @@ With the dev server running:
 ```powershell
 $body = '{"text":"Tell me about yourself."}'
 $response = Invoke-WebRequest -Uri http://localhost:3000/api/tts -Method POST -Body $body -ContentType "application/json"
-[System.IO.File]::WriteAllBytes("$PWD\test-audio.mp3", $response.Content)
+[System.IO.File]::WriteAllBytes("$PWD\test-audio.wav", $response.Content)
 ```
 
-Then open `test-audio.mp3` in Windows Media Player or any audio player. You should hear a voice saying "Tell me about yourself."
+Then open `test-audio.wav` in Windows Media Player or any audio player. You should hear a voice saying "Tell me about yourself."
 
 - [ ] **Step 3: Clean up test file and commit**
 
 ```powershell
-Remove-Item test-audio.mp3 -ErrorAction SilentlyContinue
+Remove-Item test-audio.wav -ErrorAction SilentlyContinue
 git add speakflow/app/api/tts/
-git commit -m "feat: implement /api/tts route — ElevenLabs proxy returning audio/mpeg
+git commit -m "feat: implement /api/tts route — Gemini TTS proxy returning audio/wav
 
-POST /api/tts proxies the text to ElevenLabs eleven_turbo_v2 and streams back
-the audio buffer as audio/mpeg. The client creates a Blob URL and plays it via
-the Web Audio API. No-store cache header prevents stale audio between questions."
+POST /api/tts proxies the text to Gemini 2.5 Flash TTS (same GOOGLE_AI_API_KEY,
+no extra credential). The response PCM is wrapped in a WAV header by gemini-tts.ts
+so the browser can decode it natively. The client creates a Blob URL and plays it
+via the HTML Audio API. No-store cache header prevents stale audio between questions."
 ```
 
 ---
@@ -577,7 +613,7 @@ cd speakflow && npm test
 Expected output:
 ```
 PASS lib/gemma.test.ts
-PASS lib/elevenlabs.test.ts
+PASS lib/gemini-tts.test.ts
 PASS lib/metrics.test.ts
 
 Test Suites: 3 passed, 3 total
