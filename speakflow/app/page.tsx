@@ -2,10 +2,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { Role, Message } from '@/lib/types';
 import { fetchInterviewerReply, fetchTts, fetchEvaluation } from '@/lib/api';
-import { useSpeechRecognition } from '@/lib/useSpeechRecognition';
+import { useAudioRecorder } from '@/lib/useAudioRecorder';
 import { countFillers, computeWpm, computeConfidence } from '@/lib/metrics';
 
 // ── Constants ──────────────────────────────────────────────────
+const TOTAL_ROUNDS = 2;
 const META: Record<string, { label: string; desc: string }> = {
   banking:    { label: 'Banking & Finance',     desc: 'AI will ask you investment banking, private equity, and capital markets questions with instant scored feedback.' },
   consulting: { label: 'Management Consulting', desc: 'Sharpen case interviews, behavioural rounds, and structured problem-solving for MBB and Big 4.' },
@@ -57,6 +58,9 @@ export default function Home() {
   const [wpm,          setWpm]          = useState<number | null>(null);
   const [confidence,   setConfidence]   = useState<number | null>(null);
 
+  // Round tracking
+  const [roundsCompleted, setRoundsCompleted] = useState(0);
+
   // Text input
   const [chatInput, setChatInput] = useState('');
 
@@ -66,11 +70,15 @@ export default function Home() {
   const sessionTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef     = useRef<number>(0);
   // messagesRef mirrors messages state — used by handleTurn to avoid stale closures
-  const messagesRef      = useRef<Message[]>([]);
+  const messagesRef         = useRef<Message[]>([]);
+  const roundsCompletedRef  = useRef(0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleEndSessionRef = useRef<() => Promise<void>>(async () => {});
   const audioRef         = useRef<HTMLAudioElement | null>(null);
 
-  // Keep messagesRef in sync with state
+  // Keep refs in sync with state
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { roundsCompletedRef.current = roundsCompleted; }, [roundsCompleted]);
 
   useEffect(() => {
     if (chatMsgsRef.current) {
@@ -179,17 +187,27 @@ export default function Home() {
     const userMsg: Message = { role: 'user', text: transcript, timestamp: Date.now() };
     messagesRef.current = [...messagesRef.current, userMsg];
     setMessages(prev => [...prev, userMsg]);
+
+    const newRounds = roundsCompletedRef.current + 1;
+    roundsCompletedRef.current = newRounds;
+    setRoundsCompleted(newRounds);
+    if (newRounds >= TOTAL_ROUNDS) {
+      handleEndSessionRef.current();
+      return;
+    }
     handleTurn();
   }, [countFillers, computeWpm, computeConfidence, handleTurn]);
 
   const handleSpeechError = useCallback((error: string) => {
     setIsRecording(false);
     setIsListening(false);
-    addMessage('interviewer', `Voice input error: ${error}. Please use the text box below.`);
+    if (error !== 'no-speech') {
+      addMessage('interviewer', `Voice input error: ${error}. Please use the text box below.`);
+    }
   }, [addMessage]);
 
   const { start: startRecognition, stop: stopRecognition, isSupported: isSpeechSupported } =
-    useSpeechRecognition({ onResult: handleSpeechResult, onError: handleSpeechError });
+    useAudioRecorder({ onResult: handleSpeechResult, onError: handleSpeechError });
 
   // ── Session lifecycle ────────────────────────────────────────
   const beginSession = useCallback(() => {
@@ -202,6 +220,8 @@ export default function Home() {
     setFillerList([]);
     setWpm(null);
     setConfidence(null);
+    setRoundsCompleted(0);
+    roundsCompletedRef.current = 0;
     startedAtRef.current = Date.now();
 
     if (sessionTimerRef.current) clearInterval(sessionTimerRef.current);
@@ -284,6 +304,9 @@ export default function Home() {
     endSession();
   }, [stopRecognition, endSession, addMessage]);
 
+  // Keep handleEndSessionRef in sync so handleSpeechResult can call it without a forward-reference dep
+  useEffect(() => { handleEndSessionRef.current = handleEndSession; }, [handleEndSession]);
+
   // ── Text input ───────────────────────────────────────────────
   const sendMsg = useCallback(async () => {
     const txt = chatInput.trim();
@@ -295,6 +318,15 @@ export default function Home() {
     // Add user message to ref immediately so fetchInterviewerReply sees it
     const userMsg: Message = { role: 'user', text: txt, timestamp: Date.now() };
     messagesRef.current = [...messagesRef.current, userMsg];
+
+    const newRounds = roundsCompletedRef.current + 1;
+    roundsCompletedRef.current = newRounds;
+    setRoundsCompleted(newRounds);
+    if (newRounds >= TOTAL_ROUNDS) {
+      setIsThinking(false);
+      handleEndSessionRef.current();
+      return;
+    }
 
     try {
       const reply = await fetchInterviewerReply({
@@ -453,7 +485,7 @@ export default function Home() {
             </div>
             <div className="q-card">
               <div className="q-meta">
-                Question {questionNumber}&nbsp;·&nbsp;{QTYPES[questionType]}
+                Question {questionNumber}&nbsp;·&nbsp;{QTYPES[questionType]}&nbsp;·&nbsp;Round {roundsCompleted + 1} of {TOTAL_ROUNDS}
               </div>
               <div className="q-text">{currentQuestion}</div>
             </div>
