@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { getQuestionsForType } from './questionBank';
 
 export const DEFAULT_GEMMA_MODEL_ID = 'gemma-4-31b-it';
 
@@ -30,15 +31,19 @@ function getAI() {
 export function buildInterviewerPrompt(
   interviewType: string,
   questionType: string,
-  difficulty: string
+  difficulty: string,
+  seedQuestions: string[] = []
 ): string {
+  const seedBlock = seedQuestions.length > 0
+    ? `\n\nExample questions for this interview type:\n${seedQuestions.map(q => `- ${q}`).join('\n')}`
+    : '';
   return `You are a professional interview coach conducting a ${interviewType} interview.
 Question type: ${questionType}. Difficulty: ${difficulty}.
 
 Ask one question at a time. Keep responses under 3 sentences.
 If the user's answer is vague or incomplete, ask one targeted follow-up.
 If the answer is complete, move to the next question.
-Do not give scores or feedback yet. Act like a real interviewer.`;
+Do not give scores or feedback yet. Act like a real interviewer.${seedBlock}`;
 }
 
 export function buildEvaluationPrompt(): string {
@@ -119,7 +124,8 @@ export async function generateInterviewerReply(params: {
   const { interviewType, questionType, difficulty, messages } = params;
   const ai = getAI();
 
-  const systemInstruction = buildInterviewerPrompt(interviewType, questionType, difficulty);
+  const seedQuestions = await getQuestionsForType(interviewType);
+  const systemInstruction = buildInterviewerPrompt(interviewType, questionType, difficulty, seedQuestions);
 
   const contents = messages.map(m => ({
     role: m.role === 'interviewer' ? 'model' as const : 'user' as const,
