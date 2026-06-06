@@ -139,12 +139,12 @@ export default function Home() {
     let blobUrl: string | null = null;
     try {
       blobUrl = await fetchTts(question);
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
         const audio = new Audio(blobUrl!);
         audioRef.current = audio;
         audio.onended = () => resolve();
-        audio.onerror = () => resolve();
-        audio.play().catch(() => resolve());
+        audio.onerror = () => reject(new Error('audio playback failed'));
+        audio.play().catch((err) => reject(err));
       });
     } catch {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
