@@ -75,6 +75,11 @@ export default function Home() {
   const startAnswerCdRef    = useRef<() => void>(() => {});
   const audioRef            = useRef<HTMLAudioElement | null>(null);
 
+  // Open sidebar by default on desktop
+  useEffect(() => {
+    if (window.innerWidth >= 1024) setSidebarOpen(true);
+  }, []);
+
   // Keep refs in sync with state
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { roundsCompletedRef.current = roundsCompleted; }, [roundsCompleted]);
@@ -402,15 +407,6 @@ export default function Home() {
         <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
           <div className="sidebar-head">
             <span className="sidebar-head-title">Settings</span>
-            <button
-              className="sidebar-toggle-btn"
-              onClick={() => setSidebarOpen(false)}
-              title="Close settings"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-              </svg>
-            </button>
           </div>
           <div className="sidebar-scroll">
             <div className="sidebar-section">
@@ -420,7 +416,12 @@ export default function Home() {
                   <button
                     key={key}
                     className={`type-btn${interviewType === key ? ' active' : ''}`}
-                    onClick={() => { if (!sessionActive) setInterviewType(key); }}
+                    onClick={() => {
+                      if (!sessionActive) {
+                        setInterviewType(key);
+                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                      }
+                    }}
                   >
                     {val.label}
                     <div className="type-dot"/>
@@ -435,7 +436,12 @@ export default function Home() {
                   <button
                     key={key}
                     className={`type-btn${questionType === key ? ' active' : ''}`}
-                    onClick={() => { if (!sessionActive) setQuestionType(key); }}
+                    onClick={() => {
+                      if (!sessionActive) {
+                        setQuestionType(key);
+                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                      }
+                    }}
                   >
                     {label}
                     <div className="type-dot"/>
@@ -451,7 +457,12 @@ export default function Home() {
                 <button
                   key={d}
                   className={`pill${difficulty === d ? ' active' : ''}`}
-                  onClick={() => { if (!sessionActive) setDifficulty(d); }}
+                  onClick={() => {
+                    if (!sessionActive) {
+                      setDifficulty(d);
+                      if (window.innerWidth < 1024) setSidebarOpen(false);
+                    }
+                  }}
                 >
                   {d.charAt(0).toUpperCase() + d.slice(1)}
                 </button>
@@ -476,11 +487,6 @@ export default function Home() {
                   {String(Math.floor(answerTimeLeft / 60)).padStart(2, '0')}:{String(answerTimeLeft % 60).padStart(2, '0')}
                 </div>
               )}
-              <button className="icon-btn" title="Clear chat" onClick={() => setMessages([])}>
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </button>
             </div>
           </div>
 
