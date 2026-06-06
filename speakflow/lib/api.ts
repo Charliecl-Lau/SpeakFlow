@@ -27,6 +27,20 @@ export async function fetchTts(text: string): Promise<string> {
   return URL.createObjectURL(blob);
 }
 
+export async function fetchTranscription(audio: Blob): Promise<string> {
+  const form = new FormData();
+  const extension = audio.type.includes('ogg') ? 'ogg' : 'webm';
+  form.append('audio', audio, `answer.${extension}`);
+
+  const res = await fetch('/api/transcribe', {
+    method: 'POST',
+    body:   form,
+  });
+  if (!res.ok) throw new Error(`/api/transcribe ${res.status}`);
+  const data = await res.json() as { transcript?: string };
+  return data.transcript?.trim() ?? '';
+}
+
 export async function fetchEvaluation(messages: Message[]): Promise<EvaluationResult> {
   const res = await fetch('/api/evaluate', {
     method:  'POST',

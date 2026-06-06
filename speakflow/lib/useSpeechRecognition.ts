@@ -69,20 +69,30 @@ export function useSpeechRecognition({ onResult, onError }: UseSpeechRecognition
 
     startedAtRef.current = Date.now();
 
+    // Track whether a result or error already fired so onend doesn't double-notify.
+    let settled = false;
+
     recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const transcript = Array.from(event.results)
         .map(r => r[0].transcript)
         .join(' ')
         .trim();
-      if (transcript) onResult(transcript, startedAtRef.current);
+      if (transcript) {
+        settled = true;
+        onResult(transcript, startedAtRef.current);
+      }
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEventLike) => {
+      settled = true;
       onError(event.error ?? 'SpeechRecognition error');
     };
 
     recognition.onend = () => {
       recognitionRef.current = null;
+      // If recognition ended with no result (silence, timeout, aborted),
+      // notify the caller so it can reset recording state.
+      if (!settled) onError('no-speech');
     };
 
     recognitionRef.current = recognition;

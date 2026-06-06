@@ -1,4 +1,4 @@
-const STT_ENDPOINT = 'https://speech.googleapis.com/v1/speech:recognize';
+const STT_ENDPOINT = 'https://speech.googleapis.com/v2/speech:recognize';
 
 export function getSTTApiKey(): string {
   const key = process.env.GOOGLE_CLOUD_STT_API_KEY;
