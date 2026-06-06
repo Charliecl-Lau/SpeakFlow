@@ -39,14 +39,11 @@
     }
 
     @media (min-width: 1024px) {
-      .shell {
+      .shell,
+      .shell.sidebar-off {
         display: grid;
         grid-template-columns: var(--sidebar-w) 1fr;
         grid-template-areas: "sidebar chat";
-        transition: grid-template-columns 0.26s cubic-bezier(.4,0,.2,1);
-      }
-      .shell.sidebar-off {
-        grid-template-columns: var(--sidebar-collapsed-w) 1fr;
       }
     }
 
@@ -127,11 +124,13 @@
       .sidebar {
         position: static;
         grid-area: sidebar;
+        width: var(--sidebar-w);
         height: 100%;
         transform: none;
         z-index: auto;
         transition: none;
       }
+      .sidebar-toggle-btn { display: none; }
     }
 
     .sidebar-head {
