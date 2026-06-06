@@ -167,7 +167,7 @@
     /* ── Chat Panel (expanded, full remaining width) ─────────── */
     .chat-panel {
       grid-area: chat;
-      background: var(--bg);
+      background: var(--surface);
       display: flex; flex-direction: column; overflow: hidden;
       position: relative;
       background-image: radial-gradient(circle, rgba(222,115,86,0.08) 1px, transparent 1px);
@@ -204,17 +204,6 @@
     .answer-timer.danger { color: var(--danger); border-color: rgba(220,38,38,0.3); animation: timer-pulse 0.8s ease-in-out infinite; }
     @keyframes timer-pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
     .timer-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--danger); animation: blink 1s infinite; }
-
-    /* Question card */
-    .q-card {
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 16px 24px; flex-shrink: 0;
-    }
-    .q-meta {
-      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
-    }
-    .q-text { font-size: 13.5px; color: var(--fg-2); line-height: 1.6; }
 
     /* ── Live Metrics Bar ────────────────────────────────────── */
     .metrics-bar {

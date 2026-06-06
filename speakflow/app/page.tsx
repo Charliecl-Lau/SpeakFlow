@@ -51,8 +51,6 @@ export default function Home() {
 
   // Session data
   const [messages,         setMessages]         = useState<Message[]>([]);
-  const [currentQuestion,  setCurrentQuestion]  = useState('');
-  const [questionNumber,   setQuestionNumber]   = useState(1);
   const [questionsDone,    setQuestionsDone]    = useState(0);
   const [scores,           setScores]           = useState<number[]>([]);
   const [sessionTime,      setSessionTime]      = useState('0s');
@@ -110,7 +108,6 @@ export default function Home() {
   // ── Voice loop ───────────────────────────────────────────────
   const handleTurn = useCallback(async () => {
     setIsThinking(true);
-    setCurrentQuestion('');
 
     const currentMsgs = messagesRef.current;
 
@@ -130,11 +127,7 @@ export default function Home() {
     }
 
     setIsThinking(false);
-    setCurrentQuestion(question);
-
-    const qNum = currentMsgs.filter(m => m.role === 'interviewer').length + 1;
-    setQuestionNumber(qNum);
-    // Question is shown in the pinned q-card — not added to message bubbles
+    addMessage('interviewer', question);
 
     // 2. Speak via ElevenLabs → fallback to speechSynthesis
     setIsSpeaking(true);
@@ -257,7 +250,6 @@ export default function Home() {
   const beginSession = useCallback(() => {
     setSessionActive(true);
     setMessages([]);
-    setQuestionNumber(1);
     setQuestionsDone(0);
     setScores([]);
     setFillerCount(0);
@@ -460,18 +452,6 @@ export default function Home() {
               </button>
             </div>
           </div>
-
-          {/* Pinned question card — only when session active */}
-          {sessionActive && (
-            <div className="q-card">
-              <div className="q-meta">
-                Question {questionNumber}&nbsp;·&nbsp;{QTYPES[questionType]}&nbsp;·&nbsp;Round {roundsCompleted + 1} of {TOTAL_ROUNDS}
-              </div>
-              <div className="q-text">
-                {currentQuestion || (isThinking ? 'Thinking…' : '')}
-              </div>
-            </div>
-          )}
 
           {/* Live metrics bar */}
           <div className={`metrics-bar${sessionActive ? ' show' : ''}`}>
