@@ -601,7 +601,7 @@ export default function Home() {
                 disabled={micDisabled || micUnsupported}
                 aria-label="Toggle recording"
               >
-                <svg width="26" height="26" viewBox="0 0 20 20" fill="none">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                   <rect x="6" y="1" width="8" height="11" rx="4" stroke="white" strokeWidth="1.8"/>
                   <path d="M3 10c0 3.87 3.13 7 7 7s7-3.13 7-7" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
                   <line x1="10" y1="17" x2="10" y2="19.5" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
