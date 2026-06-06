@@ -39,7 +39,7 @@ export default function Home() {
   const [isRecording,      setIsRecording]      = useState(false);
 
   // UI state
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Post-question 5-second countdown
   const [cdVisible,  setCdVisible]  = useState(false);
@@ -308,8 +308,15 @@ export default function Home() {
     try {
       const fb = await fetchEvaluation(transcriptMsgs);
 
+      const metricsLine = [
+        fillerCount > 0 ? `Fillers: ${fillerCount}` : null,
+        wpm !== null ? `WPM: ${wpm}` : null,
+        confidence !== null ? `Confidence: ${confidence}%` : null,
+      ].filter(Boolean).join(' · ');
+
       const feedbackText = [
         `**Overall Score: ${fb.overallScore}/100**`,
+        metricsLine ? `*${metricsLine}*` : null,
         `Clarity: ${fb.clarityScore} · Confidence: ${fb.confidenceScore} · Structure: ${fb.structureScore} · Specificity: ${fb.specificityScore}`,
         '',
         '**Strengths**',
@@ -326,7 +333,7 @@ export default function Home() {
         ...(fb.fillerWords.length > 0
           ? ['', `**Filler words detected:** ${fb.fillerWords.join(', ')}`]
           : []),
-      ].join('\n');
+      ].filter(line => line !== null).join('\n');
 
       setIsThinking(false);
       addMessage('interviewer', feedbackText, true);
@@ -356,6 +363,17 @@ export default function Home() {
     <>
       {/* ── Top bar ─────────────────────────────────────────── */}
       <header className="topbar">
+        <button
+          className="topbar-toggle"
+          onClick={() => setSidebarOpen(o => !o)}
+          aria-label="Open settings"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <line x1="2" y1="4" x2="16" y2="4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            <line x1="2" y1="9" x2="16" y2="9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            <line x1="2" y1="14" x2="16" y2="14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+          </svg>
+        </button>
         <div className="logo-mark">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <rect x="5" y="3" width="6" height="8" rx="3" fill="white"/>
@@ -364,20 +382,33 @@ export default function Home() {
           </svg>
         </div>
         <span className="logo-wordmark">Speak<em>Flow</em></span>
+        {sessionActive && (
+          <button className="topbar-end-btn" onClick={handleEndSession} disabled={isThinking}>
+            End session
+          </button>
+        )}
       </header>
+
+      {/* Sidebar backdrop (mobile only) */}
+      <div
+        className={`sidebar-backdrop${sidebarOpen ? ' visible' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
 
       <div className={`shell${sidebarOpen ? '' : ' sidebar-off'}`}>
 
         {/* ── SIDEBAR ─────────────────────────────────────────── */}
-        <aside className="sidebar">
+        <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
           <div className="sidebar-head">
+            <span className="sidebar-head-title">Settings</span>
             <button
               className="sidebar-toggle-btn"
-              onClick={() => setSidebarOpen(o => !o)}
-              title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+              onClick={() => setSidebarOpen(false)}
+              title="Close settings"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <polyline points="8,1 3,6 8,11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
               </svg>
             </button>
           </div>
@@ -585,7 +616,6 @@ export default function Home() {
                       ? 'Recording… click again when done'
                       : 'Click mic to start recording your answer'}
               </div>
-              <button className="end-btn" onClick={handleEndSession} disabled={isThinking}>End session</button>
             </div>
           )}
 
