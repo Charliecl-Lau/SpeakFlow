@@ -39,14 +39,19 @@ export default function Home() {
   const [isRecording,      setIsRecording]      = useState(false);
 
   // UI state
-  const [sidebarOpen,      setSidebarOpen]      = useState(true);
-  const [countdownVisible, setCountdownVisible] = useState(false);
-  const [countdownNum,     setCountdownNum]     = useState(5);
-  const [cdOffset,         setCdOffset]         = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Post-question 5-second countdown
+  const [cdVisible,  setCdVisible]  = useState(false);
+  const [cdNum,      setCdNum]      = useState(5);
+  const [cdOffset,   setCdOffset]   = useState(0);
+
+  // 2-minute answer timer (-1 = not active)
+  const [answerTimeLeft, setAnswerTimeLeft] = useState(-1);
 
   // Session data
   const [messages,         setMessages]         = useState<Message[]>([]);
-  const [currentQuestion,  setCurrentQuestion]  = useState('Loading question…');
+  const [currentQuestion,  setCurrentQuestion]  = useState('');
   const [questionNumber,   setQuestionNumber]   = useState(1);
   const [questionsDone,    setQuestionsDone]    = useState(0);
   const [scores,           setScores]           = useState<number[]>([]);
@@ -61,20 +66,16 @@ export default function Home() {
   // Round tracking
   const [roundsCompleted, setRoundsCompleted] = useState(0);
 
-  // Text input
-  const [chatInput, setChatInput] = useState('');
-
   // Refs
-  const chatMsgsRef      = useRef<HTMLDivElement>(null);
-  const textareaRef      = useRef<HTMLTextAreaElement>(null);
-  const sessionTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startedAtRef     = useRef<number>(0);
-  // messagesRef mirrors messages state — used by handleTurn to avoid stale closures
+  const chatMsgsRef         = useRef<HTMLDivElement>(null);
+  const sessionTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const answerTimerRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef        = useRef<number>(0);
   const messagesRef         = useRef<Message[]>([]);
   const roundsCompletedRef  = useRef(0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleEndSessionRef = useRef<() => Promise<void>>(async () => {});
-  const audioRef         = useRef<HTMLAudioElement | null>(null);
+  const startAnswerCdRef    = useRef<() => void>(() => {});
+  const audioRef            = useRef<HTMLAudioElement | null>(null);
 
   // Keep refs in sync with state
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -90,27 +91,21 @@ export default function Home() {
     setMessages(prev => [...prev, { role, text, timestamp: Date.now(), isFeedback }]);
   }, []);
 
-  // ── Countdown ────────────────────────────────────────────────
-  const startCountdown = () => {
-    if (sessionActive || countdownVisible) return;
-    const C = 2 * Math.PI * 68; // circumference for r=68
-    setCountdownVisible(true);
-    setCountdownNum(5);
-    setCdOffset(0);
-    let n = 5;
-    const tick = setInterval(() => {
-      n--;
-      if (n > 0) {
-        setCountdownNum(n);
-        setCdOffset(C * ((5 - n) / 5));
-      } else {
-        setCountdownNum(0);
-        setCdOffset(C);
-        clearInterval(tick);
-        setTimeout(() => { setCountdownVisible(false); beginSession(); }, 700);
-      }
+  // ── Answer timer (2 minutes) ─────────────────────────────────
+  const startAnswerTimer = useCallback(() => {
+    setAnswerTimeLeft(120);
+    if (answerTimerRef.current) clearInterval(answerTimerRef.current);
+    answerTimerRef.current = setInterval(() => {
+      setAnswerTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(answerTimerRef.current!);
+          answerTimerRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
-  };
+  }, []);
 
   // ── Voice loop ───────────────────────────────────────────────
   const handleTurn = useCallback(async () => {
@@ -139,7 +134,7 @@ export default function Home() {
 
     const qNum = currentMsgs.filter(m => m.role === 'interviewer').length + 1;
     setQuestionNumber(qNum);
-    addMessage('interviewer', `**Question ${qNum}:** ${question}`);
+    // Question is shown in the pinned q-card — not added to message bubbles
 
     // 2. Speak via ElevenLabs → fallback to speechSynthesis
     setIsSpeaking(true);
@@ -168,9 +163,18 @@ export default function Home() {
       audioRef.current = null;
     }
     setIsSpeaking(false);
+    // Trigger 5-second post-question countdown → auto-starts recording
+    startAnswerCdRef.current();
   }, [interviewType, questionType, difficulty, addMessage]);
 
   const handleSpeechResult = useCallback((transcript: string, startedAt: number) => {
+    // Clear 2-min timer when user finishes speaking
+    if (answerTimerRef.current) {
+      clearInterval(answerTimerRef.current);
+      answerTimerRef.current = null;
+    }
+    setAnswerTimeLeft(-1);
+
     const elapsedSeconds = Math.max(1, (Date.now() - startedAt) / 1000);
     const words          = transcript.trim().split(/\s+/).filter(Boolean);
     const { count, words: fw } = countFillers(transcript);
@@ -196,18 +200,58 @@ export default function Home() {
       return;
     }
     handleTurn();
-  }, [countFillers, computeWpm, computeConfidence, handleTurn]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleTurn]);
 
   const handleSpeechError = useCallback((error: string) => {
     setIsRecording(false);
     setIsListening(false);
     if (error !== 'no-speech') {
-      addMessage('interviewer', `Voice input error: ${error}. Please use the text box below.`);
+      addMessage('interviewer', `Voice input error: ${error}. Please try again.`);
     }
   }, [addMessage]);
 
   const { start: startRecognition, stop: stopRecognition, isSupported: isSpeechSupported } =
     useAudioRecorder({ onResult: handleSpeechResult, onError: handleSpeechError });
+
+  // ── Post-question 5-second countdown ────────────────────────
+  const startAnswerCountdown = useCallback(() => {
+    const C = 2 * Math.PI * 68;
+    setCdVisible(true);
+    setCdNum(5);
+    setCdOffset(0);
+    let n = 5;
+    const tick = setInterval(() => {
+      n--;
+      if (n > 0) {
+        setCdNum(n);
+        setCdOffset(C * ((5 - n) / 5));
+      } else {
+        setCdNum(0);
+        setCdOffset(C);
+        clearInterval(tick);
+        setTimeout(() => {
+          setCdVisible(false);
+          setIsRecording(true);
+          setIsListening(true);
+          startRecognition();
+          startAnswerTimer();
+        }, 700);
+      }
+    }, 1000);
+  }, [startRecognition, startAnswerTimer]);
+
+  // Keep startAnswerCdRef in sync
+  useEffect(() => { startAnswerCdRef.current = startAnswerCountdown; }, [startAnswerCountdown]);
+
+  // Auto-stop recording when 2-min timer expires
+  useEffect(() => {
+    if (answerTimeLeft !== 0) return;
+    stopRecognition();
+    setIsRecording(false);
+    setIsListening(false);
+    setAnswerTimeLeft(-1);
+  }, [answerTimeLeft, stopRecognition]);
 
   // ── Session lifecycle ────────────────────────────────────────
   const beginSession = useCallback(() => {
@@ -231,12 +275,6 @@ export default function Home() {
       setSessionTime(m > 0 ? `${m}m ${ss}s` : `${ss}s`);
     }, 1000);
 
-    addMessage('interviewer',
-      `Hi! I'm your SpeakFlow AI coach. Let's begin your ${META[interviewType].label} interview — ` +
-      `${QTYPES[questionType].toLowerCase()} style, ${difficulty} difficulty.\n\n` +
-      `I'll ask you one question at a time. Listen, then click the mic to record your answer.`
-    );
-
     handleTurn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interviewType, questionType, difficulty, addMessage, handleTurn]);
@@ -248,6 +286,8 @@ export default function Home() {
       window.speechSynthesis.cancel();
     }
     stopRecognition();
+    if (answerTimerRef.current) clearInterval(answerTimerRef.current);
+    setAnswerTimeLeft(-1);
     setSessionActive(false);
     setIsListening(false);
     setIsSpeaking(false);
@@ -264,6 +304,8 @@ export default function Home() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+    if (answerTimerRef.current) clearInterval(answerTimerRef.current);
+    setAnswerTimeLeft(-1);
     setIsThinking(true);
     setIsListening(false);
     setIsRecording(false);
@@ -306,53 +348,6 @@ export default function Home() {
 
   // Keep handleEndSessionRef in sync so handleSpeechResult can call it without a forward-reference dep
   useEffect(() => { handleEndSessionRef.current = handleEndSession; }, [handleEndSession]);
-
-  // ── Text input ───────────────────────────────────────────────
-  const sendMsg = useCallback(async () => {
-    const txt = chatInput.trim();
-    if (!txt || isThinking) return;
-    setChatInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    addMessage('user', txt);
-    setIsThinking(true);
-    // Add user message to ref immediately so fetchInterviewerReply sees it
-    const userMsg: Message = { role: 'user', text: txt, timestamp: Date.now() };
-    messagesRef.current = [...messagesRef.current, userMsg];
-
-    const newRounds = roundsCompletedRef.current + 1;
-    roundsCompletedRef.current = newRounds;
-    setRoundsCompleted(newRounds);
-    if (newRounds >= TOTAL_ROUNDS) {
-      setIsThinking(false);
-      handleEndSessionRef.current();
-      return;
-    }
-
-    try {
-      const reply = await fetchInterviewerReply({
-        interviewType,
-        questionType,
-        difficulty,
-        messages: messagesRef.current,
-      });
-      setIsThinking(false);
-      const aiMsg: Message = { role: 'interviewer', text: reply, timestamp: Date.now() };
-      messagesRef.current = [...messagesRef.current, aiMsg];
-      addMessage('interviewer', reply);
-    } catch {
-      setIsThinking(false);
-      addMessage('interviewer', "Sorry, I couldn't generate a question. Try again.");
-    }
-  }, [chatInput, isThinking, addMessage, interviewType, questionType, difficulty]);
-
-  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
-  };
-
-  const resizeTextarea = (el: HTMLTextAreaElement) => {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 110) + 'px';
-  };
 
   // ── Derived display values ───────────────────────────────────
   const avgScore       = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
@@ -442,125 +437,41 @@ export default function Home() {
           </div>
         </aside>
 
-        {/* ── MAIN ────────────────────────────────────────────── */}
-        <main className="main">
-          {/* Idle state */}
-          <div className="idle-wrap" style={{ display: sessionActive ? 'none' : undefined }}>
-            <div className="status-badge ready">
-              <div className="status-dot"/><span>Ready to practise</span>
-            </div>
-            <div className="session-card">
-              <div className="type-badge">
-                <span>{META[interviewType].label}</span>
-              </div>
-              <div className="session-title">Start your practice session</div>
-              <div className="session-desc">{META[interviewType].desc}</div>
-              <button className="start-btn" onClick={startCountdown} disabled={countdownVisible}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <polygon points="3,1 13,7 3,13" fill="white"/>
-                </svg>
-                Start Interview
-              </button>
-              <div className="session-stats">
-                <div className="stat">
-                  <div className="stat-val">{questionsDone}</div>
-                  <div className="stat-lbl">Questions done</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-val">{avgScore !== null ? String(avgScore) : '—'}</div>
-                  <div className="stat-lbl">Avg score</div>
-                </div>
-                <div className="stat">
-                  <div className="stat-val">{sessionTime}</div>
-                  <div className="stat-lbl">Session time</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Active state */}
-          <div className={`active-wrap${sessionActive ? ' show' : ''}`}>
-            <div className="status-badge live">
-              <div className="status-dot"/><span>Session live</span>
-            </div>
-            <div className="q-card">
-              <div className="q-meta">
-                Question {questionNumber}&nbsp;·&nbsp;{QTYPES[questionType]}&nbsp;·&nbsp;Round {roundsCompleted + 1} of {TOTAL_ROUNDS}
-              </div>
-              <div className="q-text">{currentQuestion}</div>
-            </div>
-            <div className={`waveform${isListening ? '' : ' idle'}`}>
-              {[...Array(7)].map((_, i) => <div key={i} className="w-bar"/>)}
-            </div>
-            <button
-              className={`mic-btn${isRecording ? ' recording' : ''}`}
-              onClick={() => {
-                if (!isSpeechSupported()) {
-                  addMessage('interviewer', 'Voice input not supported in this browser. Use the text box below.');
-                  return;
-                }
-                if (isRecording) {
-                  stopRecognition();
-                  setIsRecording(false);
-                  setIsListening(false);
-                } else {
-                  setIsRecording(true);
-                  setIsListening(true);
-                  startRecognition();
-                }
-              }}
-              disabled={micDisabled || micUnsupported}
-              aria-label="Toggle recording"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <rect x="6" y="1" width="8" height="11" rx="4" stroke="white" strokeWidth="1.8"/>
-                <path d="M3 10c0 3.87 3.13 7 7 7s7-3.13 7-7" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
-                <line x1="10" y1="17" x2="10" y2="19.5" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-              </svg>
-            </button>
-            <div className="mic-hint">
-              {micUnsupported
-                ? 'Voice input not supported in this browser. Use the text box below.'
-                : micDisabled
-                  ? (isSpeaking ? 'Listen to the question…' : 'Thinking…')
-                  : isRecording
-                    ? 'Recording… click again when done'
-                    : 'Click mic to start recording your answer'}
-            </div>
-            <button className="end-btn" onClick={handleEndSession} disabled={isThinking}>End session</button>
-          </div>
-
-          {/* Countdown overlay */}
-          <div className={`countdown-overlay${countdownVisible ? ' show' : ''}`}>
-            <div className="cd-label">Interview starts in</div>
-            <div className="cd-ring-wrap">
-              <svg className="cd-ring" viewBox="0 0 148 148">
-                <circle className="track" cx="74" cy="74" r="68"/>
-                <circle
-                  className="progress"
-                  cx="74" cy="74" r="68"
-                  style={{ strokeDashoffset: cdOffset }}
-                />
-              </svg>
-              <div className="cd-num">{countdownNum === 0 ? 'Go' : countdownNum}</div>
-            </div>
-            <div className="cd-sub">Breathe. You&apos;ve got this.</div>
-          </div>
-        </main>
-
-        {/* ── CHAT PANEL ──────────────────────────────────────── */}
+        {/* ── CHAT PANEL (expanded, full remaining width) ──────── */}
         <section className="chat-panel">
+
+          {/* Header */}
           <div className="chat-head">
             <div>
               <div className="chat-head-title"><div className="ai-dot"/>AI Interview Coach</div>
               <div className="chat-head-sub">Powered by SpeakFlow AI</div>
             </div>
-            <button className="icon-btn" title="Clear chat" onClick={() => setMessages([])}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {isRecording && answerTimeLeft >= 0 && (
+                <div className={`answer-timer${answerTimeLeft <= 30 ? ' danger' : answerTimeLeft <= 60 ? ' warn' : ''}`}>
+                  <div className="timer-dot"/>
+                  {String(Math.floor(answerTimeLeft / 60)).padStart(2, '0')}:{String(answerTimeLeft % 60).padStart(2, '0')}
+                </div>
+              )}
+              <button className="icon-btn" title="Clear chat" onClick={() => setMessages([])}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
+
+          {/* Pinned question card — only when session active */}
+          {sessionActive && (
+            <div className="q-card">
+              <div className="q-meta">
+                Question {questionNumber}&nbsp;·&nbsp;{QTYPES[questionType]}&nbsp;·&nbsp;Round {roundsCompleted + 1} of {TOTAL_ROUNDS}
+              </div>
+              <div className="q-text">
+                {currentQuestion || (isThinking ? 'Thinking…' : '')}
+              </div>
+            </div>
+          )}
 
           {/* Live metrics bar */}
           <div className={`metrics-bar${sessionActive ? ' show' : ''}`}>
@@ -603,50 +514,118 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Messages */}
-          <div className="chat-msgs" ref={chatMsgsRef}>
-            {messages.length === 0 && !isThinking ? (
-              <div className="chat-empty">
-                <div className="chat-empty-icon">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="5" y="3" width="6" height="8" rx="3" stroke="currentColor" strokeWidth="1.5"/>
-                    <path d="M2 8c0 3.31 2.69 6 6 6s6-2.69 6-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-                    <line x1="8" y1="14" x2="8" y2="15.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                </div>
-                <div className="chat-empty-txt">Start a session to practise with your AI interview coach</div>
+          {/* Messages (session) or Idle card (pre-session) */}
+          {sessionActive ? (
+            <div className="chat-msgs" ref={chatMsgsRef}>
+              {messages.length === 0 && !isThinking ? null : (
+                <>
+                  {messages.map((msg, i) => (
+                    <MessageBubble key={i} msg={msg}/>
+                  ))}
+                  {isThinking && <TypingIndicator/>}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="chat-idle">
+              <div className="status-badge ready">
+                <div className="status-dot"/><span>Ready to practise</span>
               </div>
-            ) : (
-              <>
-                {messages.map((msg, i) => (
-                  <MessageBubble key={i} msg={msg}/>
-                ))}
-                {isThinking && <TypingIndicator/>}
-              </>
-            )}
+              <div className="session-card">
+                <div className="type-badge">
+                  <span>{META[interviewType].label}</span>
+                </div>
+                <div className="session-title">Start your practice session</div>
+                <div className="session-desc">{META[interviewType].desc}</div>
+                <button className="start-btn" onClick={beginSession}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <polygon points="3,1 13,7 3,13" fill="white"/>
+                  </svg>
+                  Start Interview
+                </button>
+                <div className="session-stats">
+                  <div className="stat">
+                    <div className="stat-val">{questionsDone}</div>
+                    <div className="stat-lbl">Questions done</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-val">{avgScore !== null ? String(avgScore) : '—'}</div>
+                    <div className="stat-lbl">Avg score</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-val">{sessionTime}</div>
+                    <div className="stat-lbl">Session time</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Voice input area — only when session active */}
+          {sessionActive && (
+            <div className="voice-input-area">
+              <div className={`waveform${isListening ? '' : ' idle'}`}>
+                {[...Array(7)].map((_, i) => <div key={i} className="w-bar"/>)}
+              </div>
+              <button
+                className={`mic-btn${isRecording ? ' recording' : ''}`}
+                onClick={() => {
+                  if (!isSpeechSupported()) {
+                    addMessage('interviewer', 'Voice input not supported in this browser.');
+                    return;
+                  }
+                  if (isRecording) {
+                    if (answerTimerRef.current) { clearInterval(answerTimerRef.current); answerTimerRef.current = null; }
+                    setAnswerTimeLeft(-1);
+                    stopRecognition();
+                    setIsRecording(false);
+                    setIsListening(false);
+                  } else {
+                    setIsRecording(true);
+                    setIsListening(true);
+                    startRecognition();
+                    startAnswerTimer();
+                  }
+                }}
+                disabled={micDisabled || micUnsupported}
+                aria-label="Toggle recording"
+              >
+                <svg width="26" height="26" viewBox="0 0 20 20" fill="none">
+                  <rect x="6" y="1" width="8" height="11" rx="4" stroke="white" strokeWidth="1.8"/>
+                  <path d="M3 10c0 3.87 3.13 7 7 7s7-3.13 7-7" stroke="white" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+                  <line x1="10" y1="17" x2="10" y2="19.5" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+              </button>
+              <div className="mic-hint">
+                {micUnsupported
+                  ? 'Voice input not supported in this browser.'
+                  : micDisabled
+                    ? (isSpeaking ? 'Listen to the question…' : 'Thinking…')
+                    : isRecording
+                      ? 'Recording… click again when done'
+                      : 'Click mic to start recording your answer'}
+              </div>
+              <button className="end-btn" onClick={handleEndSession} disabled={isThinking}>End session</button>
+            </div>
+          )}
+
+          {/* Post-question countdown overlay */}
+          <div className={`countdown-overlay${cdVisible ? ' show' : ''}`}>
+            <div className="cd-label">Get ready to answer</div>
+            <div className="cd-ring-wrap">
+              <svg className="cd-ring" viewBox="0 0 148 148">
+                <circle className="track" cx="74" cy="74" r="68"/>
+                <circle
+                  className="progress"
+                  cx="74" cy="74" r="68"
+                  style={{ strokeDashoffset: cdOffset }}
+                />
+              </svg>
+              <div className="cd-num">{cdNum === 0 ? 'Go!' : cdNum}</div>
+            </div>
+            <div className="cd-sub">Your mic will activate automatically.</div>
           </div>
 
-          {/* Text input */}
-          <div className="chat-input-row">
-            <textarea
-              ref={textareaRef}
-              className="chat-input"
-              placeholder="Type your answer or ask for coaching tips…"
-              rows={1}
-              value={chatInput}
-              onChange={e => { setChatInput(e.target.value); resizeTextarea(e.target); }}
-              onKeyDown={handleKey}
-            />
-            <button
-              className="send-btn"
-              onClick={sendMsg}
-              disabled={!chatInput.trim() || isThinking}
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M12 6.5L1 1l2.5 5.5L1 12z" fill="white" stroke="white" strokeWidth="0.5" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
         </section>
       </div>
     </>
