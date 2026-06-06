@@ -1,3 +1,4 @@
 {
-  "rootDirectory": "speakflow"
+  "rootDirectory": "speakflow",
+  "buildCommand": "npm run build"
 }
